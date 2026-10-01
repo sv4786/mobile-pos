@@ -120,7 +120,7 @@ async function initDatabaseSchema(d: SQLite.SQLiteDatabase) {
       ItemId INTEGER,
       StockId INTEGER,
       Price REAL,
-      Limit REAL,
+      PromotionLimit REAL,
       IsActive REAL
     );
 
@@ -281,7 +281,7 @@ async function seedDatabase(d: SQLite.SQLiteDatabase) {
     INSERT INTO arpmatrix (AccId, ItemId, StockId, Price, IsActive) VALUES (2, 1002, 1, 95.00, 1);
 
     INSERT INTO inpromotion (PromotionId, PromotionDesc, FromText, ToText, IsActive) VALUES (1, 'Seasonal Hardware Discount Sale', '2026-09-01', '2026-12-31', 1);
-    INSERT INTO inpromotionitem (PromotionId, ItemId, StockId, Price, Limit, IsActive) VALUES (1, 1001, 1, 35.00, 100, 1);
+    INSERT INTO inpromotionitem (PromotionId, ItemId, StockId, Price, PromotionLimit, IsActive) VALUES (1, 1001, 1, 35.00, 100, 1);
     INSERT INTO inpromotionstore (PromotionId, StoreId, IsActive) VALUES (1, 1, 1);
   `);
 }
@@ -564,3 +564,6 @@ export const posDb = {
     `, [storeId]);
   }
 };
+
+
+

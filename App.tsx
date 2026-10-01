@@ -11,7 +11,7 @@ import { posDb } from './src/database';
 const { width: SCREEN_W } = Dimensions.get('window');
 void SCREEN_W;
 
-type TabKey = 'pos' | 'quotes' | 'invoices' | 'products' | 'customers' | 'promotions' | 'stocktake' | 'stores';
+type TabKey = 'pos' | 'quotes' | 'invoices' | 'products' | 'customers' | 'promotions' | 'stocktake' | 'stores' | 'settings' | 'more';
 
 const TABS: { key: TabKey; label: string; abbr: string }[] = [
   { key: 'pos',       label: 'POS',     abbr: 'POS' },
@@ -367,7 +367,7 @@ export default function App() {
       </Modal>
 
       {/* Bottom nav */}
-      <View style={bs.nav}>
+      <View style={[bs.nav, { paddingBottom: 28 }]}>
         {TABS.map(t => {
           const active = activeTab === t.key;
           return (
@@ -636,7 +636,7 @@ function PromotionsScreen({ promos }: { promos: Promotion[] }) {
   );
 }
 
-function StoresScreen({ stores, current, onSwitch }: any) {
+function StoresScreen({ stores, current, onSwitch }: any) { stores, current, onSwitch }: any) {
   return (
     <ScrollView style={bs.screen} contentContainerStyle={{ paddingBottom: 24 }}>
       <SectionHeader title="Store Locations" />
@@ -677,7 +677,7 @@ const bs = StyleSheet.create({
   splashSub:  { color: '#6b7280', fontSize: 13, marginTop: 6 },
 
   // Header
-  header:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#0d1117', borderBottomWidth: 1, borderBottomColor: '#1f2937' },
+  header:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 22, paddingBottom: 14, backgroundColor: '#0d1117', borderBottomWidth: 1, borderBottomColor: '#1f2937' },
   headerLeft:  { flexDirection: 'row', alignItems: 'center', gap: 10 },
   headerTitle: { color: '#f9fafb', fontSize: 15, fontWeight: '700' },
   headerSub:   { color: '#6b7280', fontSize: 11, marginTop: 1 },
@@ -789,7 +789,7 @@ const bs = StyleSheet.create({
   vfBR:{ position: 'absolute', bottom: '30%', right: '15%', width: 30, height: 30, borderBottomWidth: 3, borderRightWidth: 3, borderColor: '#6366f1', borderRadius: 2 },
 
   // Bottom nav
-  nav:          { flexDirection: 'row', backgroundColor: '#0d1117', borderTopWidth: 1, borderTopColor: '#1f2937', paddingBottom: 4 },
+  nav:          { flexDirection: 'row', backgroundColor: '#0d1117', borderTopWidth: 1, borderTopColor: '#1f2937', paddingBottom: 4, minHeight: 68 },
   navItem:      { flex: 1, alignItems: 'center', paddingTop: 8, paddingBottom: 2, position: 'relative' },
   navPill:      { borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2, alignItems: 'center' },
   navPillActive:{ backgroundColor: 'rgba(99,102,241,0.15)' },
