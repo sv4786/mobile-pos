@@ -1,20 +1,801 @@
-import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import {
+  StyleSheet, Text, View, TouchableOpacity, TextInput, ScrollView,
+  Modal, SafeAreaView, StatusBar, Alert, ActivityIndicator,
+  Animated, Dimensions, FlatList,
+} from 'react-native';
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import { Product, Store, Customer, CartItem, Quote, Invoice, Promotion, StockTakeItem } from './src/types';
+import { posDb } from './src/database';
 
-export default function App() {
+const { width: SCREEN_W } = Dimensions.get('window');
+void SCREEN_W;
+
+type TabKey = 'pos' | 'quotes' | 'invoices' | 'products' | 'customers' | 'promotions' | 'stocktake' | 'stores';
+
+const TABS: { key: TabKey; label: string; abbr: string }[] = [
+  { key: 'pos',       label: 'POS',     abbr: 'POS' },
+  { key: 'quotes',    label: 'Quotes',  abbr: 'QT'  },
+  { key: 'invoices',  label: 'Invoice', abbr: 'INV' },
+  { key: 'products',  label: 'Items',   abbr: 'ITM' },
+  { key: 'customers', label: 'Clients', abbr: 'CLT' },
+  { key: 'stocktake', label: 'Count',   abbr: 'CNT' },
+];
+
+// ── Reusable small components ─────────────────────────────────────
+
+function Badge({ text, color }: { text: string; color: string }) {
   return (
-    <View style={styles.container}>
-      <Text>Open up App.tsx to start working on your app!</Text>
-      <StatusBar style="auto" />
+    <View style={[bs.badge, { backgroundColor: color + '22', borderColor: color + '55' }]}>
+      <Text style={[bs.badgeText, { color }]}>{text}</Text>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+function Divider() {
+  return <View style={bs.divider} />;
+}
+
+function SectionHeader({ title }: { title: string }) {
+  return (
+    <View style={bs.sectionRow}>
+      <View style={bs.sectionBar} />
+      <Text style={bs.sectionText}>{title}</Text>
+    </View>
+  );
+}
+
+function EmptyState({ icon, title, sub }: { icon: string; title: string; sub: string }) {
+  return (
+    <View style={bs.emptyWrap}>
+      <Text style={bs.emptyIcon}>{icon}</Text>
+      <Text style={bs.emptyTitle}>{title}</Text>
+      <Text style={bs.emptySub}>{sub}</Text>
+    </View>
+  );
+}
+
+// ── Root App ──────────────────────────────────────────────────────
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState<TabKey>('pos');
+  const [stores, setStores] = useState<Store[]>([]);
+  const [currentStore, setCurrentStore] = useState<Store | null>(null);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [barcodeInput, setBarcodeInput] = useState('');
+  const [scanMsg, setScanMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+  const [permission, requestPermission] = useCameraPermissions();
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [quotesList, setQuotesList] = useState<Quote[]>([]);
+  const [invoicesList, setInvoicesList] = useState<Invoice[]>([]);
+  const [productsList, setProductsList] = useState<Product[]>([]);
+  const [promotionsList, setPromotionsList] = useState<Promotion[]>([]);
+  const [stockScans, setStockScans] = useState<StockTakeItem[]>([]);
+  const [productSearch, setProductSearch] = useState('');
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [loading, setLoading] = useState(true);
+  const bannerAnim = useRef(new Animated.Value(0)).current;
+  const scannerLock = useRef(false);
+
+  useEffect(() => { initApp(); }, []);
+  useEffect(() => { if (currentStore) loadStoreData(currentStore.StoreId); }, [currentStore]);
+
+  const initApp = async () => {
+    try {
+      setLoading(true);
+      const [storesData, custData] = await Promise.all([posDb.getStores(), posDb.getCustomers()]);
+      setStores(storesData);
+      setCustomers(custData);
+      if (storesData.length > 0) setCurrentStore(storesData[0]);
+    } catch (err: any) {
+      Alert.alert('Startup Error', err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadStoreData = async (storeId: number) => {
+    try {
+      const [prods, promos] = await Promise.all([
+        posDb.searchProducts('', storeId, 50),
+        posDb.getPromotions(storeId),
+      ]);
+      setProductsList(prods);
+      setPromotionsList(promos);
+    } catch (_) {}
+  };
+
+  const handleTabChange = async (tab: TabKey) => {
+    setActiveTab(tab);
+    if (tab === 'quotes') setQuotesList(await posDb.getQuotes());
+    if (tab === 'invoices') setInvoicesList(await posDb.getInvoices());
+    if (tab === 'customers' && customerSearch === '') setCustomers(await posDb.getCustomers());
+  };
+
+  const flashBanner = (type: 'ok' | 'err', text: string) => {
+    setScanMsg({ type, text });
+    Animated.sequence([
+      Animated.timing(bannerAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
+      Animated.delay(2600),
+      Animated.timing(bannerAnim, { toValue: 0, duration: 300, useNativeDriver: true }),
+    ]).start(() => setScanMsg(null));
+  };
+
+  const handleScan = useCallback(async (raw?: string) => {
+    const code = (raw || barcodeInput).trim();
+    if (!code || scannerLock.current) return;
+    scannerLock.current = true;
+    setTimeout(() => { scannerLock.current = false; }, 1500);
+    try {
+      const storeId = currentStore?.StoreId ?? 1;
+      const product = await posDb.getProductByBarcode(code, storeId);
+
+      if (activeTab === 'stocktake') {
+        setStockScans(prev => [{
+          barcode: code, product, qty: 1,
+          timestamp: new Date().toLocaleTimeString(),
+        }, ...prev]);
+        flashBanner('ok', 'Counted: ' + product.ItemDesc);
+        setBarcodeInput('');
+        return;
+      }
+
+      const pr = await posDb.checkPrice(product.ItemId, product.StockId, selectedCustomer?.AccId, storeId);
+      const up = pr.unit_price;
+      const excl = r2(up / 1.15);
+      const vat = r2(up - excl);
+
+      setCart(prev => {
+        const idx = prev.findIndex(ci =>
+          ci.product.ItemId === product.ItemId && ci.product.StockId === product.StockId
+        );
+        if (idx >= 0) {
+          const updated = [...prev];
+          const newQty = updated[idx].qty + 1;
+          updated[idx] = { ...updated[idx], qty: newQty, amount: r2(newQty * up) };
+          return updated;
+        }
+        return [{
+          product, qty: 1, unit_price: up, unit_excl: excl, unit_incl: up,
+          vat_amount: vat, disc_perc: 0, amount: up,
+          price_source: pr.price_source,
+          promotion_id: pr.promotion_id,
+          promotion_desc: pr.promotion_desc,
+        }, ...prev];
+      });
+
+      flashBanner('ok', product.ItemDesc + '  R' + up.toFixed(2) + '  [' + pr.price_source + ']');
+      setBarcodeInput('');
+    } catch (err: any) {
+      flashBanner('err', err.message || 'Code not found: ' + code);
+    }
+  }, [barcodeInput, activeTab, currentStore, selectedCustomer]);
+
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+
+  const updateQty = (idx: number, delta: number) => {
+    setCart(prev => {
+      const updated = [...prev];
+      const newQty = updated[idx].qty + delta;
+      if (newQty <= 0) return updated.filter((_, i) => i !== idx);
+      updated[idx] = { ...updated[idx], qty: newQty, amount: r2(newQty * updated[idx].unit_price) };
+      return updated;
+    });
+  };
+
+  const removeItem = (idx: number) => setCart(prev => prev.filter((_, i) => i !== idx));
+
+  const subExcl  = r2(cart.reduce((a, i) => a + i.unit_excl * i.qty, 0));
+  const subVat   = r2(cart.reduce((a, i) => a + i.vat_amount * i.qty, 0));
+  const subTotal = r2(cart.reduce((a, i) => a + i.amount, 0));
+
+  const handleCreateInvoice = async () => {
+    if (cart.length === 0) return;
+    try {
+      const res = await posDb.createInvoice({
+        acc_id: selectedCustomer?.AccId ?? 1,
+        store_id: currentStore?.StoreId ?? 1,
+        company: selectedCustomer?.Company ?? 'Walk-In Cash Customer',
+        sub_total: subExcl, vat_total: subVat, amt_paid: subTotal,
+        items: cart.map(c => ({
+          item_id: c.product.ItemId, stock_id: c.product.StockId,
+          item_desc: c.product.ItemDesc, qty: c.qty,
+          unit_excl: c.unit_excl, unit_incl: c.unit_incl,
+          vat_amount: c.vat_amount, amount: c.amount,
+          promotion_id: c.promotion_id,
+        })),
+      });
+      Alert.alert('Invoice Complete!', 'Invoice ' + res.inv_no + ' saved to local database.');
+      setCart([]);
+    } catch (e: any) { Alert.alert('Error', e.message); }
+  };
+
+  const handleCreateQuote = async () => {
+    if (cart.length === 0) return;
+    try {
+      const res = await posDb.createQuote({
+        acc_id: selectedCustomer?.AccId ?? 1,
+        store_id: currentStore?.StoreId ?? 1,
+        company: selectedCustomer?.Company ?? 'Walk-In Cash Customer',
+        sub_total: subExcl, vat_total: subVat,
+        items: cart.map(c => ({
+          item_id: c.product.ItemId, stock_id: c.product.StockId,
+          item_desc: c.product.ItemDesc, qty: c.qty,
+          unit_excl: c.unit_excl, unit_incl: c.unit_incl,
+          vat_amount: c.vat_amount, amount: c.amount,
+          promotion_id: c.promotion_id,
+        })),
+      });
+      Alert.alert('Quote Saved!', 'Quote ' + res.quote_no + ' saved to local database.');
+      setCart([]);
+    } catch (e: any) { Alert.alert('Error', e.message); }
+  };
+
+  const openCamera = async () => {
+    if (!permission?.granted) {
+      const res = await requestPermission();
+      if (!res.granted) { Alert.alert('Permission Denied', 'Camera access is required.'); return; }
+    }
+    setCameraOpen(true);
+  };
+
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      if (currentStore)
+        setProductsList(await posDb.searchProducts(productSearch, currentStore.StoreId, 50));
+    }, 350);
+    return () => clearTimeout(t);
+  }, [productSearch]);
+
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      setCustomers(await posDb.getCustomers(customerSearch));
+    }, 350);
+    return () => clearTimeout(t);
+  }, [customerSearch]);
+
+  if (loading) {
+    return (
+      <View style={bs.splash}>
+        <View style={bs.splashGlow} />
+        <ActivityIndicator size="large" color="#6366f1" />
+        <Text style={bs.splashTitle}>Mobile POS</Text>
+        <Text style={bs.splashSub}>Initialising local database...</Text>
+      </View>
+    );
+  }
+
+  return (
+    <SafeAreaView style={bs.root}>
+      <StatusBar barStyle="light-content" backgroundColor="#07090f" />
+
+      {/* Header */}
+      <View style={bs.header}>
+        <View style={bs.headerLeft}>
+          <View style={bs.logoChip}><Text style={bs.logoChipText}>POS</Text></View>
+          <View>
+            <Text style={bs.headerTitle}>Mobile Point of Sale</Text>
+            <Text style={bs.headerSub}>{currentStore?.StoreDesc ?? 'No store selected'}</Text>
+          </View>
+        </View>
+        <TouchableOpacity style={bs.scanFab} onPress={openCamera}>
+          <Text style={bs.scanFabText}>[ Scan ]</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Barcode bar */}
+      <View style={bs.barcodeBar}>
+        <TextInput
+          style={bs.barcodeInput}
+          placeholder="Enter or scan item code..."
+          placeholderTextColor="#4b5563"
+          value={barcodeInput}
+          onChangeText={setBarcodeInput}
+          onSubmitEditing={() => handleScan()}
+          autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="search"
+        />
+        <TouchableOpacity style={bs.barcodeAddBtn} onPress={() => handleScan()}>
+          <Text style={bs.barcodeAddText}>Add</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Animated banner */}
+      {scanMsg && (
+        <Animated.View style={[
+          bs.banner,
+          scanMsg.type === 'ok' ? bs.bannerOk : bs.bannerErr,
+          { opacity: bannerAnim },
+        ]}>
+          <Text style={scanMsg.type === 'ok' ? bs.bannerTextOk : bs.bannerTextErr}>{scanMsg.text}</Text>
+        </Animated.View>
+      )}
+
+      {/* Tab body */}
+      <View style={bs.body}>
+        {activeTab === 'pos' && (
+          <PosScreen
+            cart={cart} selectedCustomer={selectedCustomer}
+            subExcl={subExcl} subVat={subVat} subTotal={subTotal}
+            onQtyChange={updateQty} onRemove={removeItem}
+            onInvoice={handleCreateInvoice} onQuote={handleCreateQuote}
+            onChangeCustomer={() => handleTabChange('customers')}
+          />
+        )}
+        {activeTab === 'quotes' && <QuotesScreen quotes={quotesList} />}
+        {activeTab === 'invoices' && <InvoicesScreen invoices={invoicesList} />}
+        {activeTab === 'products' && (
+          <ProductsScreen products={productsList} search={productSearch}
+            onSearch={setProductSearch} onAddToCart={handleScan} />
+        )}
+        {activeTab === 'customers' && (
+          <CustomersScreen customers={customers} search={customerSearch}
+            onSearch={setCustomerSearch} selected={selectedCustomer}
+            onSelect={(c: Customer) => { setSelectedCustomer(c); handleTabChange('pos'); }} />
+        )}
+        {activeTab === 'stocktake' && <StocktakeScreen scans={stockScans} />}
+        {activeTab === 'promotions' && <PromotionsScreen promos={promotionsList} />}
+        {activeTab === 'stores' && <StoresScreen stores={stores} current={currentStore} onSwitch={setCurrentStore} />}
+      </View>
+
+      {/* Camera modal */}
+      <Modal visible={cameraOpen} animationType="slide" statusBarTranslucent>
+        <SafeAreaView style={bs.cameraRoot}>
+          <View style={bs.cameraHeader}>
+            <Text style={bs.cameraTitle}>Scan Barcode</Text>
+            <TouchableOpacity style={bs.cameraClose} onPress={() => setCameraOpen(false)}>
+              <Text style={bs.cameraCloseText}>X  Close</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={{ flex: 1 }}>
+            <CameraView
+              style={{ flex: 1 }}
+              onBarcodeScanned={({ data }) => { setCameraOpen(false); handleScan(data); }}
+            />
+            <View style={bs.viewfinder} pointerEvents="none">
+              <View style={bs.vfTL} /><View style={bs.vfTR} />
+              <View style={bs.vfBL} /><View style={bs.vfBR} />
+            </View>
+          </View>
+          <View style={bs.cameraTip}>
+            <Text style={bs.cameraTipText}>Point camera at barcode to scan automatically</Text>
+          </View>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Bottom nav */}
+      <View style={bs.nav}>
+        {TABS.map(t => {
+          const active = activeTab === t.key;
+          return (
+            <TouchableOpacity key={t.key} style={bs.navItem} onPress={() => handleTabChange(t.key)}>
+              <View style={[bs.navPill, active && bs.navPillActive]}>
+                <Text style={[bs.navAbbr, active && bs.navAbbrActive]}>{t.abbr}</Text>
+              </View>
+              <Text style={[bs.navLabel, active && bs.navLabelActive]}>{t.label}</Text>
+              {active && <View style={bs.navDot} />}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </SafeAreaView>
+  );
+}
+
+// ── Screen components ─────────────────────────────────────────────
+
+function PosScreen({ cart, selectedCustomer, subExcl, subVat, subTotal, onQtyChange, onRemove, onInvoice, onQuote, onChangeCustomer }: any) {
+  return (
+    <ScrollView style={bs.screen} contentContainerStyle={{ paddingBottom: 24 }}>
+      <TouchableOpacity style={bs.customerStrip} onPress={onChangeCustomer}>
+        <View style={{ flex: 1 }}>
+          <Text style={bs.customerLabel}>CUSTOMER</Text>
+          <Text style={bs.customerValue} numberOfLines={1}>
+            {selectedCustomer ? selectedCustomer.Company : 'Walk-In Cash Customer'}
+          </Text>
+        </View>
+        <View style={bs.changePill}>
+          <Text style={bs.changePillText}>Change</Text>
+        </View>
+      </TouchableOpacity>
+
+      <SectionHeader title={'Cart  (' + cart.length + ' item' + (cart.length !== 1 ? 's' : '') + ')'} />
+
+      {cart.length === 0
+        ? <EmptyState icon="+" title="Cart is empty" sub="Scan or search for items to add them here" />
+        : cart.map((item: CartItem, idx: number) => (
+          <View key={idx} style={bs.cartCard}>
+            <View style={bs.cartTop}>
+              <Text style={bs.cartName} numberOfLines={2}>{item.product.ItemDesc}</Text>
+              <TouchableOpacity style={bs.cartX} onPress={() => onRemove(idx)}>
+                <Text style={bs.cartXText}>X</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={bs.cartCode}>{item.product.StockCode}  |  {item.price_source}</Text>
+            {!!item.promotion_desc && (
+              <Badge text={'PROMO: ' + item.promotion_desc} color="#f59e0b" />
+            )}
+            <View style={bs.cartBottom}>
+              <View style={bs.qtyRow}>
+                <TouchableOpacity style={bs.qtyBtn} onPress={() => onQtyChange(idx, -1)}>
+                  <Text style={bs.qtyBtnText}>-</Text>
+                </TouchableOpacity>
+                <Text style={bs.qtyVal}>{item.qty}</Text>
+                <TouchableOpacity style={bs.qtyBtn} onPress={() => onQtyChange(idx, 1)}>
+                  <Text style={bs.qtyBtnText}>+</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={bs.cartPrice}>R {item.amount.toFixed(2)}</Text>
+            </View>
+          </View>
+        ))
+      }
+
+      <View style={bs.totalsBox}>
+        <View style={bs.totalsRow}>
+          <Text style={bs.totalsLbl}>Subtotal (excl. VAT)</Text>
+          <Text style={bs.totalsVal}>R {subExcl.toFixed(2)}</Text>
+        </View>
+        <View style={bs.totalsRow}>
+          <Text style={bs.totalsLbl}>VAT (15%)</Text>
+          <Text style={bs.totalsVal}>R {subVat.toFixed(2)}</Text>
+        </View>
+        <Divider />
+        <View style={bs.totalsRow}>
+          <Text style={bs.grandLbl}>TOTAL (incl. VAT)</Text>
+          <Text style={bs.grandVal}>R {subTotal.toFixed(2)}</Text>
+        </View>
+        <TouchableOpacity
+          style={[bs.primaryBtn, cart.length === 0 && bs.btnDisabled]}
+          disabled={cart.length === 0}
+          onPress={onInvoice}
+        >
+          <Text style={bs.primaryBtnText}>Complete Invoice</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[bs.ghostBtn, cart.length === 0 && bs.btnDisabled]}
+          disabled={cart.length === 0}
+          onPress={onQuote}
+        >
+          <Text style={bs.ghostBtnText}>Save as Quote</Text>
+        </TouchableOpacity>
+      </View>
+    </ScrollView>
+  );
+}
+
+function QuotesScreen({ quotes }: { quotes: Quote[] }) {
+  return (
+    <ScrollView style={bs.screen} contentContainerStyle={{ paddingBottom: 24 }}>
+      <SectionHeader title="Saved Quotes" />
+      {quotes.length === 0
+        ? <EmptyState icon="Q" title="No quotes yet" sub="Quotes created from the POS screen will appear here" />
+        : quotes.map((q, i) => (
+          <View key={i} style={bs.listCard}>
+            <View style={bs.listRow}>
+              <Badge text={'# ' + q.QuoteNo} color="#6366f1" />
+              <Badge text={q.QUStatus || 'OPEN'} color="#f59e0b" />
+            </View>
+            <Text style={bs.listTitle}>{q.Company}</Text>
+            <Text style={bs.listSub}>{q.Date}</Text>
+            <Divider />
+            <View style={bs.listRow}>
+              <Text style={bs.listSub}>Excl. VAT</Text>
+              <Text style={bs.listPrice}>R {q.SubTotal?.toFixed(2)}</Text>
+            </View>
+          </View>
+        ))
+      }
+    </ScrollView>
+  );
+}
+
+function InvoicesScreen({ invoices }: { invoices: Invoice[] }) {
+  return (
+    <ScrollView style={bs.screen} contentContainerStyle={{ paddingBottom: 24 }}>
+      <SectionHeader title="Completed Invoices" />
+      {invoices.length === 0
+        ? <EmptyState icon="I" title="No invoices yet" sub="Completed transactions will appear here" />
+        : invoices.map((inv, i) => (
+          <View key={i} style={bs.listCard}>
+            <View style={bs.listRow}>
+              <Badge text={'INV ' + inv.INVNo} color="#10b981" />
+              <Text style={bs.listSub}>{inv.CreatedDt?.slice(0, 10)}</Text>
+            </View>
+            <Text style={bs.listTitle}>{inv.Company}</Text>
+            <Divider />
+            <View style={bs.listRow}>
+              <Text style={bs.listSub}>Amount Paid</Text>
+              <Text style={[bs.listPrice, { color: '#10b981' }]}>R {inv.AmtPaid?.toFixed(2)}</Text>
+            </View>
+          </View>
+        ))
+      }
+    </ScrollView>
+  );
+}
+
+function ProductsScreen({ products, search, onSearch, onAddToCart }: any) {
+  return (
+    <View style={{ flex: 1 }}>
+      <View style={bs.searchBar}>
+        <TextInput style={bs.searchInput} placeholder="Search by name, code..."
+          placeholderTextColor="#4b5563" value={search} onChangeText={onSearch} autoCorrect={false} />
+      </View>
+      <FlatList
+        data={products}
+        keyExtractor={(_, i) => String(i)}
+        contentContainerStyle={{ padding: 12, paddingBottom: 24 }}
+        ListEmptyComponent={<EmptyState icon="P" title="No products" sub="Adjust your search" />}
+        renderItem={({ item: p }: { item: Product }) => (
+          <View style={bs.productCard}>
+            <View style={bs.productTop}>
+              <View style={{ flex: 1 }}>
+                <Text style={bs.productName} numberOfLines={2}>{p.ItemDesc}</Text>
+                <Text style={bs.productCode}>{p.StockCode}</Text>
+              </View>
+              <View style={{ alignItems: 'flex-end' }}>
+                <Text style={bs.productPrice}>R {(p.POSPrice1 > 0 ? p.POSPrice1 : p.SellPrice1).toFixed(2)}</Text>
+                <Text style={bs.listSub}>Qty: {p.QtyOnHand}</Text>
+              </View>
+            </View>
+            <TouchableOpacity style={bs.addBtn} onPress={() => onAddToCart(p.StockCode)}>
+              <Text style={bs.addBtnText}>+ Add to Cart</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      />
+    </View>
+  );
+}
+
+function CustomersScreen({ customers, search, onSearch, selected, onSelect }: any) {
+  return (
+    <View style={{ flex: 1 }}>
+      <View style={bs.searchBar}>
+        <TextInput style={bs.searchInput} placeholder="Search customers..."
+          placeholderTextColor="#4b5563" value={search} onChangeText={onSearch} autoCorrect={false} />
+      </View>
+      <FlatList
+        data={customers}
+        keyExtractor={(_, i) => String(i)}
+        contentContainerStyle={{ padding: 12, paddingBottom: 24 }}
+        ListEmptyComponent={<EmptyState icon="C" title="No customers found" sub="Try a different search" />}
+        renderItem={({ item: c }: { item: Customer }) => {
+          const isSel = selected?.AccId === c.AccId;
+          return (
+            <TouchableOpacity
+              style={[bs.listCard, isSel && { borderColor: '#6366f1' }]}
+              onPress={() => onSelect(c)}
+            >
+              <View style={bs.listRow}>
+                <View style={bs.avatar}>
+                  <Text style={bs.avatarText}>{c.Company[0]}</Text>
+                </View>
+                <View style={{ flex: 1, marginLeft: 10 }}>
+                  <Text style={bs.listTitle}>{c.Company}</Text>
+                  <Text style={bs.listSub}>{c.AccCode}  |  {c.Tel}</Text>
+                </View>
+                {isSel && <Badge text="Active" color="#10b981" />}
+              </View>
+              {c.AllowPriceMatrix === 1 && <Badge text="Custom Pricing" color="#6366f1" />}
+              {c.AutoDisc > 0 && <Badge text={c.AutoDisc + '% Auto Discount'} color="#f59e0b" />}
+            </TouchableOpacity>
+          );
+        }}
+      />
+    </View>
+  );
+}
+
+function StocktakeScreen({ scans }: { scans: StockTakeItem[] }) {
+  return (
+    <ScrollView style={bs.screen} contentContainerStyle={{ paddingBottom: 24 }}>
+      <SectionHeader title={'Inventory Count  (' + scans.length + ' scans)'} />
+      {scans.length === 0
+        ? <EmptyState icon="S" title="No scans yet" sub="Scan items with the barcode scanner to count stock" />
+        : scans.map((s, i) => (
+          <View key={i} style={bs.listCard}>
+            <View style={bs.listRow}>
+              <Badge text={s.barcode} color="#38bdf8" />
+              <Text style={bs.listSub}>{s.timestamp}</Text>
+            </View>
+            <Text style={bs.listTitle}>{s.product?.ItemDesc ?? 'Unknown Item'}</Text>
+            <View style={[bs.listRow, { marginTop: 6 }]}>
+              <Text style={bs.listSub}>Counted Qty</Text>
+              <Text style={[bs.listPrice, { color: '#38bdf8' }]}>{s.qty}</Text>
+            </View>
+          </View>
+        ))
+      }
+    </ScrollView>
+  );
+}
+
+function PromotionsScreen({ promos }: { promos: Promotion[] }) {
+  return (
+    <ScrollView style={bs.screen} contentContainerStyle={{ paddingBottom: 24 }}>
+      <SectionHeader title="Active Promotions" />
+      {promos.length === 0
+        ? <EmptyState icon="%" title="No promotions" sub="Store promotions will appear here" />
+        : promos.map((p, i) => (
+          <View key={i} style={bs.listCard}>
+            <View style={bs.listRow}>
+              <Badge text="PROMO" color="#f59e0b" />
+              <Text style={bs.listSub}>{p.IsActive ? 'Active' : 'Inactive'}</Text>
+            </View>
+            <Text style={bs.listTitle}>{p.PromotionDesc}</Text>
+            <Text style={bs.listSub}>{p.FromText ?? '--'}  to  {p.ToText ?? '--'}</Text>
+          </View>
+        ))
+      }
+    </ScrollView>
+  );
+}
+
+function StoresScreen({ stores, current, onSwitch }: any) {
+  return (
+    <ScrollView style={bs.screen} contentContainerStyle={{ paddingBottom: 24 }}>
+      <SectionHeader title="Store Locations" />
+      {stores.map((s: Store, i: number) => {
+        const isCurr = current?.StoreId === s.StoreId;
+        return (
+          <View key={i} style={[bs.listCard, isCurr && { borderColor: '#6366f1' }]}>
+            <View style={bs.listRow}>
+              <Badge text={s.StoreCode} color={isCurr ? '#6366f1' : '#6b7280'} />
+              {isCurr && <Badge text="Current" color="#10b981" />}
+            </View>
+            <Text style={bs.listTitle}>{s.StoreDesc}</Text>
+            <Text style={bs.listSub}>Tel: {s.Tel ?? 'N/A'}</Text>
+            {!isCurr && (
+              <TouchableOpacity style={[bs.ghostBtn, { marginTop: 10 }]} onPress={() => onSwitch(s)}>
+                <Text style={bs.ghostBtnText}>Switch to this store</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        );
+      })}
+    </ScrollView>
+  );
+}
+
+// ── Styles ────────────────────────────────────────────────────────
+
+const bs = StyleSheet.create({
+  root:   { flex: 1, backgroundColor: '#07090f' },
+  screen: { flex: 1, paddingHorizontal: 12 },
+  body:   { flex: 1 },
+  divider:{ height: 1, backgroundColor: '#1f2937', marginVertical: 10 },
+
+  // Splash
+  splash:     { flex: 1, backgroundColor: '#07090f', alignItems: 'center', justifyContent: 'center' },
+  splashGlow: { position: 'absolute', width: 280, height: 280, borderRadius: 140, backgroundColor: 'rgba(99,102,241,0.10)', top: '28%' },
+  splashTitle:{ color: '#f9fafb', fontSize: 28, fontWeight: '800', letterSpacing: 1, marginTop: 18 },
+  splashSub:  { color: '#6b7280', fontSize: 13, marginTop: 6 },
+
+  // Header
+  header:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#0d1117', borderBottomWidth: 1, borderBottomColor: '#1f2937' },
+  headerLeft:  { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  headerTitle: { color: '#f9fafb', fontSize: 15, fontWeight: '700' },
+  headerSub:   { color: '#6b7280', fontSize: 11, marginTop: 1 },
+  logoChip:    { backgroundColor: '#6366f1', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
+  logoChipText:{ color: '#ffffff', fontSize: 11, fontWeight: '900', letterSpacing: 1.2 },
+  scanFab:     { backgroundColor: 'rgba(99,102,241,0.15)', borderWidth: 1, borderColor: 'rgba(99,102,241,0.4)', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 7 },
+  scanFabText: { color: '#6366f1', fontSize: 12, fontWeight: '700' },
+
+  // Barcode bar
+  barcodeBar:    { flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: '#0d1117', borderBottomWidth: 1, borderBottomColor: '#1f2937' },
+  barcodeInput:  { flex: 1, backgroundColor: '#161d2b', borderWidth: 1, borderColor: '#2d3748', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9, color: '#f9fafb', fontSize: 13 },
+  barcodeAddBtn: { backgroundColor: '#10b981', borderRadius: 10, paddingHorizontal: 18, justifyContent: 'center' },
+  barcodeAddText:{ color: '#ffffff', fontWeight: '800', fontSize: 13 },
+
+  // Banner
+  banner:      { marginHorizontal: 12, marginTop: 8, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10 },
+  bannerOk:    { backgroundColor: 'rgba(16,185,129,0.14)', borderWidth: 1, borderColor: 'rgba(16,185,129,0.4)' },
+  bannerErr:   { backgroundColor: 'rgba(239,68,68,0.13)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.4)' },
+  bannerTextOk:  { color: '#10b981', fontSize: 12, fontWeight: '600' },
+  bannerTextErr: { color: '#ef4444', fontSize: 12, fontWeight: '600' },
+
+  // Section header
+  sectionRow:  { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 16, marginBottom: 10 },
+  sectionBar:  { width: 3, height: 16, backgroundColor: '#6366f1', borderRadius: 2 },
+  sectionText: { color: '#f9fafb', fontSize: 13, fontWeight: '700', letterSpacing: 0.3 },
+
+  // Badge
+  badge:    { alignSelf: 'flex-start', borderWidth: 1, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2, marginBottom: 2 },
+  badgeText:{ fontSize: 10, fontWeight: '700' },
+
+  // Empty state
+  emptyWrap: { alignItems: 'center', paddingVertical: 48 },
+  emptyIcon: { fontSize: 34, color: '#374151', marginBottom: 10 },
+  emptyTitle:{ color: '#f9fafb', fontSize: 15, fontWeight: '700' },
+  emptySub:  { color: '#6b7280', fontSize: 12, textAlign: 'center', maxWidth: 220, marginTop: 4 },
+
+  // Customer strip
+  customerStrip:   { flexDirection: 'row', alignItems: 'center', backgroundColor: '#111827', borderRadius: 12, padding: 12, marginTop: 12, borderWidth: 1, borderColor: '#1f2937' },
+  customerLabel:   { color: '#6b7280', fontSize: 9, fontWeight: '800', letterSpacing: 1 },
+  customerValue:   { color: '#38bdf8', fontSize: 13, fontWeight: '700', marginTop: 2 },
+  changePill:      { backgroundColor: 'rgba(99,102,241,0.15)', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
+  changePillText:  { color: '#6366f1', fontSize: 11, fontWeight: '700' },
+
+  // Cart card
+  cartCard:  { backgroundColor: '#111827', borderRadius: 12, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: '#1f2937' },
+  cartTop:   { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  cartName:  { flex: 1, color: '#f9fafb', fontSize: 13, fontWeight: '700', lineHeight: 18 },
+  cartCode:  { color: '#6b7280', fontSize: 11, marginTop: 3, marginBottom: 6 },
+  cartX:     { padding: 4 },
+  cartXText: { color: '#ef4444', fontSize: 13, fontWeight: '800' },
+  cartBottom:{ flexDirection: 'row', alignItems: 'center', marginTop: 8 },
+  qtyRow:    { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  qtyBtn:    { backgroundColor: '#374151', width: 30, height: 30, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  qtyBtnText:{ color: '#ffffff', fontSize: 18, fontWeight: '700', lineHeight: 22 },
+  qtyVal:    { color: '#ffffff', fontSize: 15, fontWeight: '800', minWidth: 24, textAlign: 'center' },
+  cartPrice: { color: '#10b981', fontSize: 16, fontWeight: '800', marginLeft: 'auto' },
+
+  // Totals
+  totalsBox:{ backgroundColor: '#111827', borderRadius: 14, padding: 16, marginTop: 16, borderWidth: 1, borderColor: '#1f2937' },
+  totalsRow:{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  totalsLbl:{ color: '#9ca3af', fontSize: 13 },
+  totalsVal:{ color: '#f9fafb', fontSize: 13, fontWeight: '600' },
+  grandLbl: { color: '#ffffff', fontSize: 15, fontWeight: '800' },
+  grandVal: { color: '#10b981', fontSize: 22, fontWeight: '900' },
+
+  // Buttons
+  primaryBtn:     { backgroundColor: '#6366f1', borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 14 },
+  primaryBtnText: { color: '#ffffff', fontSize: 15, fontWeight: '800' },
+  ghostBtn:       { backgroundColor: 'transparent', borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginTop: 8, borderWidth: 1, borderColor: '#1f2937' },
+  ghostBtnText:   { color: '#9ca3af', fontSize: 13, fontWeight: '700' },
+  btnDisabled:    { opacity: 0.4 },
+
+  // List card
+  listCard: { backgroundColor: '#111827', borderRadius: 12, padding: 13, marginBottom: 8, borderWidth: 1, borderColor: '#1f2937' },
+  listRow:  { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 },
+  listTitle:{ color: '#f9fafb', fontSize: 14, fontWeight: '700', marginTop: 4 },
+  listSub:  { color: '#6b7280', fontSize: 11, marginTop: 2 },
+  listPrice:{ color: '#10b981', fontSize: 15, fontWeight: '800' },
+
+  // Search
+  searchBar:  { paddingHorizontal: 12, paddingTop: 12, paddingBottom: 6 },
+  searchInput:{ backgroundColor: '#161d2b', borderWidth: 1, borderColor: '#2d3748', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, color: '#f9fafb', fontSize: 13 },
+
+  // Product card
+  productCard:{ backgroundColor: '#111827', borderRadius: 12, padding: 13, marginBottom: 8, borderWidth: 1, borderColor: '#1f2937' },
+  productTop: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10 },
+  productName:{ color: '#f9fafb', fontSize: 13, fontWeight: '700', lineHeight: 18 },
+  productCode:{ color: '#6b7280', fontSize: 11, marginTop: 2 },
+  productPrice:{ color: '#10b981', fontSize: 16, fontWeight: '800' },
+  addBtn:     { backgroundColor: 'rgba(99,102,241,0.15)', borderWidth: 1, borderColor: 'rgba(99,102,241,0.35)', borderRadius: 8, paddingVertical: 8, alignItems: 'center' },
+  addBtnText: { color: '#6366f1', fontSize: 12, fontWeight: '700' },
+
+  // Avatar
+  avatar:    { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(99,102,241,0.15)', alignItems: 'center', justifyContent: 'center' },
+  avatarText:{ color: '#6366f1', fontSize: 16, fontWeight: '800' },
+
+  // Camera
+  cameraRoot:     { flex: 1, backgroundColor: '#000000' },
+  cameraHeader:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, backgroundColor: 'rgba(0,0,0,0.9)' },
+  cameraTitle:    { color: '#ffffff', fontSize: 17, fontWeight: '700' },
+  cameraClose:    { backgroundColor: 'rgba(255,255,255,0.1)', padding: 8, borderRadius: 20 },
+  cameraCloseText:{ color: '#ffffff', fontSize: 13, fontWeight: '700' },
+  cameraTip:      { padding: 20, backgroundColor: 'rgba(0,0,0,0.8)', alignItems: 'center' },
+  cameraTipText:  { color: '#6b7280', fontSize: 13 },
+  viewfinder:{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
+  vfTL:{ position: 'absolute', top: '30%', left: '15%', width: 30, height: 30, borderTopWidth: 3, borderLeftWidth: 3, borderColor: '#6366f1', borderRadius: 2 },
+  vfTR:{ position: 'absolute', top: '30%', right: '15%', width: 30, height: 30, borderTopWidth: 3, borderRightWidth: 3, borderColor: '#6366f1', borderRadius: 2 },
+  vfBL:{ position: 'absolute', bottom: '30%', left: '15%', width: 30, height: 30, borderBottomWidth: 3, borderLeftWidth: 3, borderColor: '#6366f1', borderRadius: 2 },
+  vfBR:{ position: 'absolute', bottom: '30%', right: '15%', width: 30, height: 30, borderBottomWidth: 3, borderRightWidth: 3, borderColor: '#6366f1', borderRadius: 2 },
+
+  // Bottom nav
+  nav:          { flexDirection: 'row', backgroundColor: '#0d1117', borderTopWidth: 1, borderTopColor: '#1f2937', paddingBottom: 4 },
+  navItem:      { flex: 1, alignItems: 'center', paddingTop: 8, paddingBottom: 2, position: 'relative' },
+  navPill:      { borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2, alignItems: 'center' },
+  navPillActive:{ backgroundColor: 'rgba(99,102,241,0.15)' },
+  navAbbr:      { fontSize: 8, color: '#4b5563', fontWeight: '800', letterSpacing: 0.5 },
+  navAbbrActive:{ color: '#6366f1' },
+  navLabel:     { fontSize: 9, color: '#4b5563', marginTop: 3, fontWeight: '600' },
+  navLabelActive:{ color: '#6366f1' },
+  navDot:       { position: 'absolute', bottom: 0, width: 4, height: 4, borderRadius: 2, backgroundColor: '#6366f1' },
 });
