@@ -17,6 +17,7 @@ import CustomersScreen from './src/screens/CustomersScreen';
 import StocktakeScreen from './src/screens/StocktakeScreen';
 import PromotionsScreen from './src/screens/PromotionsScreen';
 import StoresScreen from './src/screens/StoresScreen';
+import SettingsScreen from './src/screens/SettingsScreen';
 import DocumentDetailScreen from './src/screens/DocumentDetailScreen';
 import { generateDocumentPdf } from './src/services/DocumentService';
 
@@ -36,18 +37,29 @@ type TabKey =
   | 'more';
 
 const TABS: { key: TabKey; label: string; abbr: string }[] = [
-  { key: 'pos',       label: 'POS',     abbr: 'POS' },
-  { key: 'quotes',    label: 'Quotes',  abbr: 'QT'  },
-  { key: 'invoices',  label: 'Invoice', abbr: 'INV' },
-  { key: 'products',  label: 'Items',   abbr: 'ITM' },
-  { key: 'customers', label: 'Clients', abbr: 'CLT' },
-  { key: 'stocktake', label: 'Count',   abbr: 'CNT' },
+  { key: 'pos',       label: 'POS',      abbr: 'POS' },
+  { key: 'quotes',    label: 'Quotes',   abbr: 'QT'  },
+  { key: 'invoices',  label: 'Invoices', abbr: 'INV' },
+  { key: 'products',  label: 'Items',    abbr: 'ITM' },
+];
+
+const DRAWER_TABS: { key: TabKey; label: string; icon: string }[] = [
+  { key: 'pos',         label: 'Point of Sale', icon: 'POS' },
+  { key: 'quotes',      label: 'Quotes',        icon: 'QT' },
+  { key: 'invoices',    label: 'Invoices',      icon: 'INV' },
+  { key: 'products',    label: 'Products',      icon: 'ITM' },
+  { key: 'customers',   label: 'Customers',     icon: 'CUS' },
+  { key: 'stocktake',   label: 'Stock Take',    icon: 'STK' },
+  { key: 'promotions',  label: 'Promotions',    icon: 'PRO' },
+  { key: 'stores',      label: 'Stores',        icon: 'STR' },
+  { key: 'settings',    label: 'Settings',      icon: 'SET' },
 ];
 
 function AppContent() {
   const insets = useSafeAreaInsets();
 
   const [activeTab, setActiveTab] = useState<TabKey>('pos');
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [stores, setStores] = useState<Store[]>([]);
   const [currentStore, setCurrentStore] = useState<Store | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -119,6 +131,8 @@ function AppContent() {
 
   const handleTabChange = async (tab: TabKey) => {
     setActiveTab(tab);
+    setDrawerOpen(false);
+    setDocumentDetail(null);
 
     if (tab === 'quotes') {
       setQuotesList(await posDb.getQuotes());
@@ -639,7 +653,79 @@ function AppContent() {
             onSwitch={setCurrentStore}
           />
         )}
+
+        {activeTab === 'settings' && (
+          <SettingsScreen
+            currentStore={currentStore}
+            onManageStores={() => handleTabChange('stores')}
+          />
+        )}
       </View>
+
+      {/* Side navigation */}
+      <Modal
+        visible={drawerOpen}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setDrawerOpen(false)}
+      >
+        <View style={bs.drawerOverlay}>
+          <View
+            style={[
+              bs.drawer,
+              {
+                paddingTop: insets.top + 12,
+                paddingBottom: insets.bottom + 12,
+              },
+            ]}
+          >
+            <View style={bs.drawerHeader}>
+              <View>
+                <Text style={bs.drawerTitle}>Mobile POS</Text>
+                <Text style={bs.drawerSub}>Navigation</Text>
+              </View>
+              <TouchableOpacity
+                style={bs.drawerClose}
+                onPress={() => setDrawerOpen(false)}
+              >
+                <Text style={bs.drawerCloseText}>×</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingVertical: 10 }}
+            >
+              {DRAWER_TABS.map(item => {
+                const active = activeTab === item.key;
+                return (
+                  <TouchableOpacity
+                    key={item.key}
+                    style={[bs.drawerItem, active && bs.drawerItemActive]}
+                    onPress={() => handleTabChange(item.key)}
+                  >
+                    <View style={[bs.drawerIcon, active && bs.drawerIconActive]}>
+                      <Text style={[bs.drawerIconText, active && bs.drawerIconTextActive]}>
+                        {item.icon}
+                      </Text>
+                    </View>
+                    <Text style={[bs.drawerLabel, active && bs.drawerLabelActive]}>
+                      {item.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+
+          <TouchableOpacity
+            style={bs.drawerBackdrop}
+            activeOpacity={1}
+            onPress={() => setDrawerOpen(false)}
+          />
+        </View>
+      </Modal>
 
       {/* Camera modal */}
       <Modal
@@ -696,7 +782,7 @@ function AppContent() {
         style={[
           bs.nav,
           {
-            paddingBottom: insets.bottom + 4,
+            paddingBottom: insets.bottom + 6,
           },
         ]}
       >
@@ -707,38 +793,17 @@ function AppContent() {
             <TouchableOpacity
               key={t.key}
               style={bs.navItem}
-              onPress={() =>
-                handleTabChange(t.key)
-              }
+              onPress={() => handleTabChange(t.key)}
             >
-              <View
-                style={[
-                  bs.navPill,
-                  active && bs.navPillActive,
-                ]}
-              >
-                <Text
-                  style={[
-                    bs.navAbbr,
-                    active && bs.navAbbrActive,
-                  ]}
-                >
+              <View style={[bs.navPill, active && bs.navPillActive]}>
+                <Text style={[bs.navAbbr, active && bs.navAbbrActive]}>
                   {t.abbr}
                 </Text>
               </View>
-
-              <Text
-                style={[
-                  bs.navLabel,
-                  active && bs.navLabelActive,
-                ]}
-              >
+              <Text style={[bs.navLabel, active && bs.navLabelActive]}>
                 {t.label}
               </Text>
-
-              {active && (
-                <View style={bs.navDot} />
-              )}
+              {active && <View style={bs.navDot} />}
             </TouchableOpacity>
           );
         })}
@@ -1405,27 +1470,151 @@ const bs = StyleSheet.create({
     borderRadius: 2,
   },
 
+  menuButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: '#161d2b',
+    borderWidth: 1,
+    borderColor: '#2d3748',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  menuButtonText: {
+    color: '#f9fafb',
+    fontSize: 23,
+    fontWeight: '700',
+    lineHeight: 25,
+  },
+
+  drawerOverlay: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+
+  drawer: {
+    width: 310,
+    maxWidth: '86%',
+    backgroundColor: '#0d1117',
+    borderRightWidth: 1,
+    borderRightColor: '#1f2937',
+  },
+
+  drawerBackdrop: {
+    flex: 1,
+  },
+
+  drawerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 18,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1f2937',
+  },
+
+  drawerTitle: {
+    color: '#f9fafb',
+    fontSize: 20,
+    fontWeight: '800',
+  },
+
+  drawerSub: {
+    color: '#6b7280',
+    fontSize: 12,
+    marginTop: 2,
+  },
+
+  drawerClose: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#161d2b',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  drawerCloseText: {
+    color: '#9ca3af',
+    fontSize: 28,
+    lineHeight: 30,
+  },
+
+  drawerItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 54,
+    marginHorizontal: 10,
+    marginVertical: 3,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+  },
+
+  drawerItemActive: {
+    backgroundColor: 'rgba(99,102,241,0.14)',
+  },
+
+  drawerIcon: {
+    width: 44,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: '#161d2b',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+
+  drawerIconActive: {
+    backgroundColor: 'rgba(99,102,241,0.20)',
+  },
+
+  drawerIconText: {
+    color: '#6b7280',
+    fontSize: 10,
+    fontWeight: '900',
+  },
+
+  drawerIconTextActive: {
+    color: '#6366f1',
+  },
+
+  drawerLabel: {
+    color: '#9ca3af',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+
+  drawerLabelActive: {
+    color: '#f9fafb',
+    fontWeight: '800',
+  },
+
   nav: {
     flexDirection: 'row',
     backgroundColor: '#0d1117',
     borderTopWidth: 1,
     borderTopColor: '#1f2937',
-    paddingBottom: 4,
-    minHeight: 68,
+    paddingBottom: 6,
+    minHeight: 82,
   },
 
   navItem: {
     flex: 1,
     alignItems: 'center',
-    paddingTop: 8,
-    paddingBottom: 2,
+    justifyContent: 'center',
+    paddingTop: 7,
+    paddingBottom: 4,
     position: 'relative',
   },
 
   navPill: {
-    borderRadius: 10,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    borderRadius: 12,
+    minWidth: 54,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
     alignItems: 'center',
   },
 
@@ -1434,9 +1623,9 @@ const bs = StyleSheet.create({
   },
 
   navAbbr: {
-    fontSize: 8,
+    fontSize: 11,
     color: '#4b5563',
-    fontWeight: '800',
+    fontWeight: '900',
     letterSpacing: 0.5,
   },
 
@@ -1445,10 +1634,10 @@ const bs = StyleSheet.create({
   },
 
   navLabel: {
-    fontSize: 9,
+    fontSize: 11,
     color: '#4b5563',
-    marginTop: 3,
-    fontWeight: '600',
+    marginTop: 4,
+    fontWeight: '700',
   },
 
   navLabelActive: {
@@ -1457,10 +1646,10 @@ const bs = StyleSheet.create({
 
   navDot: {
     position: 'absolute',
-    bottom: 0,
-    width: 4,
-    height: 4,
-    borderRadius: 2,
+    bottom: 1,
+    width: 5,
+    height: 5,
+    borderRadius: 3,
     backgroundColor: '#6366f1',
   },
 });
