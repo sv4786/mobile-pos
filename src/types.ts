@@ -65,6 +65,7 @@ export interface Quote {
   DiscPerc: number;
   QUStatus: string;
   StoreDesc?: string;
+  PdfPath?: string;
 }
 
 export interface Invoice {
@@ -77,6 +78,7 @@ export interface Invoice {
   VatTotal: number;
   AmtPaid: number;
   SerialNo: string;
+  PdfPath?: string;
   StoreDesc?: string;
 }
 
