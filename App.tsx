@@ -280,7 +280,7 @@ function AppContent() {
     cart.reduce((a, i) => a + i.amount, 0)
   );
 
-  const handleCreateInvoice = async () => {
+  const handleCreateInvoice = async (payment: { method: string; amountReceived: number }) => {
     if (cart.length === 0) return;
 
     try {
@@ -292,7 +292,8 @@ function AppContent() {
           'Walk-In Cash Customer',
         sub_total: subExcl,
         vat_total: subVat,
-        amt_paid: subTotal,
+        amt_paid: payment.amountReceived,
+        pm_ref: payment.method,
         items: cart.map(c => ({
           item_id: c.product.ItemId,
           stock_id: c.product.StockId,
@@ -307,7 +308,7 @@ function AppContent() {
       });
 
       Alert.alert(
-        'Invoice Complete!',
+        'Sale Complete!',
         'Invoice ' +
           res.inv_no +
           ' saved to local database.'
