@@ -30,38 +30,7 @@ const TABS: { key: TabKey; label: string; abbr: string }[] = [
   { key: 'stocktake', label: 'Count',   abbr: 'CNT' },
 ];
 
-// ── Reusable small components ─────────────────────────────────────
-
-function Badge({ text, color }: { text: string; color: string }) {
-  return (
-    <View style={[bs.badge, { backgroundColor: color + '22', borderColor: color + '55' }]}>
-      <Text style={[bs.badgeText, { color }]}>{text}</Text>
-    </View>
-  );
-}
-
-function Divider() {
-  return <View style={bs.divider} />;
-}
-
-function SectionHeader({ title }: { title: string }) {
-  return (
-    <View style={bs.sectionRow}>
-      <View style={bs.sectionBar} />
-      <Text style={bs.sectionText}>{title}</Text>
-    </View>
-  );
-}
-
-function EmptyState({ icon, title, sub }: { icon: string; title: string; sub: string }) {
-  return (
-    <View style={bs.emptyWrap}>
-      <Text style={bs.emptyIcon}>{icon}</Text>
-      <Text style={bs.emptyTitle}>{title}</Text>
-      <Text style={bs.emptySub}>{sub}</Text>
-    </View>
-  );
-}
+import { Badge, Divider, EmptyState, SectionHeader, bs } from './src/screens/shared';
 
 // ── Root App ──────────────────────────────────────────────────────
 
