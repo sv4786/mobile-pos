@@ -157,6 +157,23 @@ export const bs = StyleSheet.create({
   vfBL:{ position: 'absolute', bottom: '30%', left: '15%', width: 30, height: 30, borderBottomWidth: 3, borderLeftWidth: 3, borderColor: '#6366f1', borderRadius: 2 },
   vfBR:{ position: 'absolute', bottom: '30%', right: '15%', width: 30, height: 30, borderBottomWidth: 3, borderRightWidth: 3, borderColor: '#6366f1', borderRadius: 2 },
 
+  // Product modals/forms
+  modalRoot:    { flex: 1, backgroundColor: '#07090f' },
+  modalHeader:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 16, backgroundColor: '#0d1117', borderBottomWidth: 1, borderBottomColor: '#1f2937' },
+  modalTitle:   { color: '#f9fafb', fontSize: 18, fontWeight: '800' },
+  modalSub:     { color: '#6b7280', fontSize: 11, marginTop: 3 },
+  modalClose:   { color: '#6366f1', fontSize: 13, fontWeight: '700' },
+  modalContent: { padding: 16, paddingBottom: 40 },
+  formGroup:    { marginBottom: 14 },
+  formLabel:    { color: '#d1d5db', fontSize: 12, fontWeight: '700', marginBottom: 6 },
+  formInput:    { backgroundColor: '#161d2b', borderWidth: 1, borderColor: '#2d3748', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 11, color: '#f9fafb', fontSize: 13 },
+  formValue:   { color: '#f9fafb', fontSize: 13 },
+  formPlaceholder: { color: '#6b7280', fontSize: 13 },
+  helpText:    { color: '#9ca3af', fontSize: 12, lineHeight: 18, marginBottom: 16 },
+  previewBox:  { backgroundColor: '#111827', borderRadius: 10, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: '#1f2937' },
+  previewTitle:{ color: '#f9fafb', fontSize: 12, fontWeight: '800', marginBottom: 8 },
+  previewText: { color: '#9ca3af', fontSize: 11, marginBottom: 5 },
+
   // Bottom nav
   nav:          { flexDirection: 'row', backgroundColor: '#0d1117', borderTopWidth: 1, borderTopColor: '#1f2937', paddingBottom: 4, minHeight: 68 },
   navItem:      { flex: 1, alignItems: 'center', paddingTop: 8, paddingBottom: 2, position: 'relative' },
