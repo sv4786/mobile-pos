@@ -2,7 +2,7 @@ import { FlatList, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { Customer } from '../types';
 import { Badge, EmptyState, bs } from './shared';
 
-function CustomersScreen({ customers, search, onSearch, selected, onSelect }: any) {
+export default function CustomersScreen({ customers, search, onSearch, selected, onSelect }: any) {
   return (
     <View style={{ flex: 1 }}>
       <View style={bs.searchBar}>
