@@ -421,6 +421,65 @@ export const posDb = {
     return { imported, skipped, errors };
   },
 
+  updateProduct: async (data: {
+    itemId: number; stockId: number; name: string; code: string; barcode?: string;
+    price: number; cost?: number; quantity?: number; vat?: string; storeId: number;
+  }) => {
+    const d = await getDb();
+    const name = data.name.trim();
+    const code = data.code.trim();
+    if (!name || !code) throw new Error('Product name and product code are required.');
+    if (!Number.isFinite(data.price) || data.price < 0) throw new Error('Price must be a valid number.');
+    const duplicate = await d.getFirstAsync<{ ItemId: number }>(
+      'SELECT ItemId FROM initem WHERE ItemCode = ? AND ItemId <> ? LIMIT 1', [code, data.itemId]
+    );
+    if (duplicate) throw new Error('Another product already uses this code.');
+    const quantity = Number.isFinite(data.quantity) ? data.quantity || 0 : 0;
+    const cost = Number.isFinite(data.cost) ? data.cost || 0 : 0;
+    const vat = (data.vat || 'Y').trim().toUpperCase() || 'Y';
+    const barcode = data.barcode?.trim() || '';
+    await d.withTransactionAsync(async () => {
+      await d.runAsync('UPDATE initem SET ItemCode = ?, ItemDesc = ?, Vat = ?, IsScannable = ? WHERE ItemId = ?',
+        [code, name, vat, barcode ? 1 : 0, data.itemId]);
+      await d.runAsync('UPDATE instock SET StockCode = ?, IsActive = 1 WHERE ItemId = ? AND StockId = ?',
+        [code, data.itemId, data.stockId]);
+      await d.runAsync('UPDATE inprice SET LastCost = ?, AvgCost = ?, POSPrice1 = ?, SellPrice1 = ? WHERE ItemId = ? AND StockId = ?',
+        [cost, cost, data.price, data.price, data.itemId, data.stockId]);
+      await d.runAsync('INSERT INTO inqty (ItemId, StockId, StoreId, QtyOnHand) VALUES (?, ?, ?, ?)
+        ON CONFLICT(ItemId, StockId, StoreId) DO UPDATE SET QtyOnHand = excluded.QtyOnHand',
+        [data.itemId, data.stockId, data.storeId, quantity]);
+      await d.runAsync('DELETE FROM instockbarcode WHERE ItemId = ? AND StockId = ?', [data.itemId, data.stockId]);
+      if (barcode) await d.runAsync('INSERT INTO instockbarcode (ItemId, StockId, BarcodeId, Barcode, IsActive) VALUES (?, ?, ?, ?, 1)',
+        [data.itemId, data.stockId, data.itemId, barcode]);
+    });
+  },
+
+  deleteProduct: async (itemId: number, stockId: number) => {
+    const d = await getDb();
+    await d.withTransactionAsync(async () => {
+      await d.runAsync('DELETE FROM instockbarcode WHERE ItemId = ? AND StockId = ?', [itemId, stockId]);
+      await d.runAsync('DELETE FROM inqty WHERE ItemId = ? AND StockId = ?', [itemId, stockId]);
+      await d.runAsync('DELETE FROM inprice WHERE ItemId = ? AND StockId = ?', [itemId, stockId]);
+      await d.runAsync('DELETE FROM instock WHERE ItemId = ? AND StockId = ?', [itemId, stockId]);
+      await d.runAsync('DELETE FROM initem WHERE ItemId = ?', [itemId]);
+    });
+  },
+
+  adjustProductStock: async (itemId: number, stockId: number, storeId: number, delta: number) => {
+    const d = await getDb();
+    if (!Number.isFinite(delta) || delta === 0) throw new Error('Enter a stock adjustment other than zero.');
+    const row = await d.getFirstAsync<{ QtyOnHand: number }>(
+      'SELECT QtyOnHand FROM inqty WHERE ItemId = ? AND StockId = ? AND StoreId = ?', [itemId, stockId, storeId]
+    );
+    const current = row?.QtyOnHand || 0;
+    const next = current + delta;
+    if (next < 0) throw new Error('Stock cannot go below zero.');
+    await d.runAsync('INSERT INTO inqty (ItemId, StockId, StoreId, QtyOnHand) VALUES (?, ?, ?, ?)
+      ON CONFLICT(ItemId, StockId, StoreId) DO UPDATE SET QtyOnHand = excluded.QtyOnHand',
+      [itemId, stockId, storeId, next]);
+    return next;
+  },
+
   getProductByBarcode: async (barcode: string, storeId: number = 1): Promise<Product> => {
     const d = await getDb();
     const row = await d.getFirstAsync<Product>(`
