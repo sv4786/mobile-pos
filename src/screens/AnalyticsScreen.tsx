@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, RefreshControl, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { File } from 'expo-file-system';
 import * as IntentLauncher from 'expo-intent-launcher';
 import { posDb } from '../database';
 import { EmptyState, SectionHeader, bs } from './shared';
@@ -27,8 +28,10 @@ export default function AnalyticsScreen({ storeId, storeName, storeCode }: Props
 
   const openPdf = async (uri: string) => {
     try {
+      const file = new File(uri);
+      if (!file.exists) throw new Error('The analytics PDF no longer exists.');
       await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
-        data: uri,
+        data: file.contentUri,
         type: 'application/pdf',
         flags: 1,
       });
