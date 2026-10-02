@@ -435,9 +435,10 @@ export const posDb = {
       LEFT JOIN insize sz ON s.SizeId = sz.SizeId
       LEFT JOIN inprice p ON (p.ItemId = s.ItemId AND p.StockId = s.StockId)
       LEFT JOIN inqty q ON (q.ItemId = s.ItemId AND q.StockId = s.StockId AND q.StoreId = ?)
-      WHERE s.StockCode = ? OR i.ItemCode = ?
+      LEFT JOIN instockbarcode b ON (b.ItemId = s.ItemId AND b.StockId = s.StockId AND b.IsActive = 1)
+      WHERE s.StockCode = ? OR i.ItemCode = ? OR b.Barcode = ?
       LIMIT 1
-    `, [storeId, barcode, barcode]);
+    `, [storeId, barcode, barcode, barcode]);
 
     if (!row) {
       throw new Error(`Product with code '${barcode}' not found in SQLite DB.`);
