@@ -676,44 +676,61 @@ export const posDb = {
 
   createInvoice: async (data: any) => {
     const d = await getDb();
-    const countRow = await d.getFirstAsync<{ count: number }>("SELECT COUNT(*) as count FROM ininvlist");
+    const countRow = await d.getFirstAsync<{ count: number }>('SELECT COUNT(*) as count FROM ininvlist');
     const invNo = `INV${10001 + (countRow?.count || 0)}`;
     const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
     const serialNo = `INV-SER-${10001 + (countRow?.count || 0)}`;
 
-    await d.runAsync(`
-      INSERT INTO ininvlist (
-        AccId, StoreId, Company, DAddress, INVNo, OrderNo, RepId, SubTotal, VatTotal, DiscPerc, Discount,
-        VatPerc, AmtPaid, PTypeId, PMRef, Notes, IsQuote, CreatedBy, CreatedDt, Posted, SerialNo
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [
-      data.acc_id, data.store_id, data.company, data.d_address || '', invNo, data.order_no || '', data.rep_id || null,
-      data.sub_total, data.vat_total, data.disc_perc || 0, data.discount || 0, data.vat_perc || 15.0, data.amt_paid,
-      data.p_type_id || 1, data.pm_ref || 'CASH', data.notes || '', data.is_quote || 0, 'MOBILE_POS', nowStr, 'Y', serialNo
-    ]);
+    await d.withTransactionAsync(async () => {
+      for (const item of data.items) {
+        const stock = await d.getFirstAsync<{ QtyOnHand: number }>(
+          'SELECT QtyOnHand FROM inqty WHERE ItemId = ? AND StockId = ? AND StoreId = ?',
+          [item.item_id, item.stock_id, data.store_id]
+        );
+        const available = Number(stock?.QtyOnHand || 0);
+        if (available < Number(item.qty || 0)) {
+          throw new Error(`Insufficient stock for "${item.item_desc}". Available: ${available}, requested: ${item.qty}.`);
+        }
+      }
 
-    let trNo = 1;
-    for (const item of data.items) {
       await d.runAsync(`
-        INSERT INTO ininvstock (
-          TransSerialNo, TrNo, ItemId, StockId, ItemDesc, Qty, CostPrice, UnitExcl, UnitIncl, VatAmount, Vat, DiscPerc, Amount, CreatedBy, CreatedDt, PromotionId
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO ininvlist (
+          AccId, StoreId, Company, DAddress, INVNo, OrderNo, RepId, SubTotal, VatTotal, DiscPerc, Discount,
+          VatPerc, AmtPaid, PTypeId, PMRef, Notes, IsQuote, CreatedBy, CreatedDt, Posted, SerialNo
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
-        serialNo, String(trNo), item.item_id, item.stock_id, item.item_desc, item.qty,
-        item.cost_price || 0, item.unit_excl, item.unit_incl, item.vat_amount, 'Y', item.disc_perc || 0,
-        item.amount, 'MOBILE_POS', nowStr, item.promotion_id || null
+        data.acc_id, data.store_id, data.company, data.d_address || '', invNo, data.order_no || '', data.rep_id || null,
+        data.sub_total, data.vat_total, data.disc_perc || 0, data.discount || 0, data.vat_perc || 15.0, data.amt_paid,
+        data.p_type_id || 1, data.pm_ref || 'CASH', data.notes || '', data.is_quote || 0, 'MOBILE_POS', nowStr, 'Y', serialNo
       ]);
 
-      await d.runAsync(`
-        UPDATE inqty 
-        SET QtyOnHand = QtyOnHand - ?
-        WHERE ItemId = ? AND StockId = ? AND StoreId = ?
-          AND QtyOnHand >= ?
-      `, [item.qty, item.item_id, item.stock_id, data.store_id, item.qty]);
-      trNo++;
-    }
+      let trNo = 1;
+      for (const item of data.items) {
+        await d.runAsync(`
+          INSERT INTO ininvstock (
+            TransSerialNo, TrNo, ItemId, StockId, ItemDesc, Qty, CostPrice, UnitExcl, UnitIncl, VatAmount, Vat, DiscPerc, Amount, CreatedBy, CreatedDt, PromotionId
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          serialNo, String(trNo), item.item_id, item.stock_id, item.item_desc, item.qty,
+          item.cost_price || 0, item.unit_excl, item.unit_incl, item.vat_amount, 'Y', item.disc_perc || 0,
+          item.amount, 'MOBILE_POS', nowStr, item.promotion_id || null
+        ]);
 
-    return { inv_no: invNo, serial_no: serialNo, status: "COMPLETED" };
+        const updateResult = await d.runAsync(`
+          UPDATE inqty
+          SET QtyOnHand = QtyOnHand - ?
+          WHERE ItemId = ? AND StockId = ? AND StoreId = ? AND QtyOnHand >= ?
+        `, [item.qty, item.item_id, item.stock_id, data.store_id, item.qty]);
+
+        if (updateResult.changes !== 1) {
+          throw new Error(`Stock changed before the sale could be completed for "${item.item_desc}". Please try again.`);
+        }
+
+        trNo++;
+      }
+    });
+
+    return { inv_no: invNo, serial_no: serialNo, status: 'COMPLETED' };
   },
 
   setQuotePdfPath: async (quoteNo: string, pdfPath: string) => {
