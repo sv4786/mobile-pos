@@ -2,7 +2,7 @@ import { ScrollView, Text, View } from 'react-native';
 import { Invoice } from '../types';
 import { Badge, Divider, EmptyState, SectionHeader, bs } from './shared';
 
-function InvoicesScreen({ invoices }: { invoices: Invoice[] }) {
+export default function InvoicesScreen({ invoices }: { invoices: Invoice[] }) {
   return (
     <ScrollView style={bs.screen} contentContainerStyle={{ paddingBottom: 24 }}>
       <SectionHeader title="Completed Invoices" />
