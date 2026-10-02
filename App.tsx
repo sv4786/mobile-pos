@@ -674,7 +674,11 @@ function AppContent() {
         )}
 
         {activeTab === 'analytics' && (
-          <AnalyticsScreen storeId={currentStore?.StoreId ?? 1} />
+          <AnalyticsScreen
+            storeId={currentStore?.StoreId ?? 1}
+            storeName={currentStore?.StoreDesc}
+            storeCode={currentStore?.StoreCode}
+          />
         )}
 
         {activeTab === 'promotions' && (
