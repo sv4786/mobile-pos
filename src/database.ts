@@ -233,6 +233,16 @@ async function initDatabaseSchema(d: SQLite.SQLiteDatabase) {
       FullName TEXT
     );
   `);
+
+  const quoteColumns = await d.getAllAsync<{ name: string }>('PRAGMA table_info(inqulist)');
+  if (!quoteColumns.some(column => column.name === 'PdfPath')) {
+    await d.runAsync('ALTER TABLE inqulist ADD COLUMN PdfPath TEXT');
+  }
+
+  const invoiceColumns = await d.getAllAsync<{ name: string }>('PRAGMA table_info(ininvlist)');
+  if (!invoiceColumns.some(column => column.name === 'PdfPath')) {
+    await d.runAsync('ALTER TABLE ininvlist ADD COLUMN PdfPath TEXT');
+  }
 }
 
 async function seedDatabase(d: SQLite.SQLiteDatabase) {
@@ -607,7 +617,7 @@ export const posDb = {
   getQuotes: async (): Promise<Quote[]> => {
     const d = await getDb();
     return await d.getAllAsync<Quote>(`
-      SELECT q.QuoteNo, q.AccId, q.StoreId, q.Company, q.Date, q.SubTotal, q.VatTotal, q.DiscPerc, q.QUStatus,
+      SELECT q.QuoteNo, q.AccId, q.StoreId, q.Company, q.Date, q.SubTotal, q.VatTotal, q.DiscPerc, q.QUStatus, q.PdfPath,
              s.StoreDesc
       FROM inqulist q
       LEFT JOIN store s ON q.StoreId = s.StoreId
@@ -655,7 +665,7 @@ export const posDb = {
   getInvoices: async (): Promise<Invoice[]> => {
     const d = await getDb();
     return await d.getAllAsync<Invoice>(`
-      SELECT i.INVNo, i.AccId, i.StoreId, i.Company, i.CreatedDt, i.SubTotal, i.VatTotal, i.AmtPaid, i.SerialNo,
+      SELECT i.INVNo, i.AccId, i.StoreId, i.Company, i.CreatedDt, i.SubTotal, i.VatTotal, i.AmtPaid, i.SerialNo, i.PdfPath,
              s.StoreDesc
       FROM ininvlist i
       LEFT JOIN store s ON i.StoreId = s.StoreId
@@ -698,13 +708,39 @@ export const posDb = {
         UPDATE inqty 
         SET QtyOnHand = QtyOnHand - ?
         WHERE ItemId = ? AND StockId = ? AND StoreId = ?
-      `, [item.qty, item.item_id, item.stock_id, data.store_id]);
+          AND QtyOnHand >= ?
+      `, [item.qty, item.item_id, item.stock_id, data.store_id, item.qty]);
       trNo++;
     }
 
     return { inv_no: invNo, serial_no: serialNo, status: "COMPLETED" };
   },
 
+  setQuotePdfPath: async (quoteNo: string, pdfPath: string) => {
+    const d = await getDb();
+    await d.runAsync('UPDATE inqulist SET PdfPath = ? WHERE QuoteNo = ?', [pdfPath, quoteNo]);
+  },
+
+  setInvoicePdfPath: async (invNo: string, pdfPath: string) => {
+    const d = await getDb();
+    await d.runAsync('UPDATE ininvlist SET PdfPath = ? WHERE INVNo = ?', [pdfPath, invNo]);
+  },
+
+  getQuoteDetails: async (quoteNo: string) => {
+    const d = await getDb();
+    const quote = await d.getFirstAsync<any>('SELECT q.*, s.StoreDesc, s.StoreCode, s.Tel, s.Cell, s.Email FROM inqulist q LEFT JOIN store s ON q.StoreId = s.StoreId WHERE q.QuoteNo = ? LIMIT 1', [quoteNo]);
+    if (!quote) throw new Error('Quote not found.');
+    const items = await d.getAllAsync<any>('SELECT * FROM inqustock WHERE TransSerialNo = ? ORDER BY CAST(TrNo AS INTEGER)', [quote.SerialNo]);
+    return { document: quote, items };
+  },
+
+  getInvoiceDetails: async (invNo: string) => {
+    const d = await getDb();
+    const invoice = await d.getFirstAsync<any>('SELECT i.*, s.StoreDesc, s.StoreCode, s.Tel, s.Cell, s.Email FROM ininvlist i LEFT JOIN store s ON i.StoreId = s.StoreId WHERE i.INVNo = ? LIMIT 1', [invNo]);
+    if (!invoice) throw new Error('Invoice not found.');
+    const items = await d.getAllAsync<any>('SELECT * FROM ininvstock WHERE TransSerialNo = ? ORDER BY CAST(TrNo AS INTEGER)', [invoice.SerialNo]);
+    return { document: invoice, items };
+  },
   getPromotions: async (storeId: number = 1): Promise<Promotion[]> => {
     const d = await getDb();
     return await d.getAllAsync<Promotion>(`
