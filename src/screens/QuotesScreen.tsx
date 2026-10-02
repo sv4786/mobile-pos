@@ -2,7 +2,7 @@ import { ScrollView, Text, View } from 'react-native';
 import { Quote } from '../types';
 import { Badge, Divider, EmptyState, SectionHeader, bs } from './shared';
 
-function QuotesScreen({ quotes }: { quotes: Quote[] }) {
+export default function QuotesScreen({ quotes }: { quotes: Quote[] }) {
   return (
     <ScrollView style={bs.screen} contentContainerStyle={{ paddingBottom: 24 }}>
       <SectionHeader title="Saved Quotes" />
