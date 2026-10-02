@@ -571,7 +571,20 @@ export const posDb = {
       WHERE COALESCE(q.QtyOnHand,0) <= 5
       ORDER BY qty ASC, i.ItemDesc LIMIT 10
     `, [storeId]);
-    return { summary, popularItems, topRevenue, paymentMethods, customerSales, lowStock };
+
+    const salesTrend = await d.getAllAsync<any>(`
+      SELECT substr(CreatedDt, 1, 10) as day,
+             COUNT(*) as invoices,
+             COALESCE(SUM(SubTotal + VatTotal), 0) as revenue
+      FROM ininvlist
+      WHERE StoreId = ?
+      GROUP BY substr(CreatedDt, 1, 10)
+      ORDER BY day DESC
+      LIMIT 30
+    `, [storeId]);
+    salesTrend.reverse();
+
+    return { summary, popularItems, topRevenue, paymentMethods, customerSales, lowStock, salesTrend };
   },
 
   createProduct: async (data: {
