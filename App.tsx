@@ -777,29 +777,8 @@ function AppContent() {
         </SafeAreaView>
       </Modal>
 
-      {/* Bottom navigation */}
-      <View
-        style={[
-          bs.nav,
-          {
-            paddingBottom: insets.bottom + 6,
-          },
-        ]}
-      >
-        {TABS.map(t => {
-          const active = activeTab === t.key;
-
-          return (
-            <TouchableOpacity
-              key={t.key}
-              style={bs.navItem}
-              onPress={() => handleTabChange(t.key)}
-            >
-              <View style={[bs.navPill, active && bs.navPillActive]}>
-                <Text style={[bs.navAbbr, active && bs.navAbbrActive]}>
-                  {t.abbr}
-                </Text>
-              </View>
+      {/* Navigation is handled by the hamburger sidebar to preserve phone screen space. */}
+    </View>
               <Text style={[bs.navLabel, active && bs.navLabelActive]}>
                 {t.label}
               </Text>
