@@ -1,15 +1,15 @@
-import { ScrollView, Text, View } from 'react-native';
+import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { Quote } from '../types';
 import { Badge, Divider, EmptyState, SectionHeader, bs } from './shared';
 
-export default function QuotesScreen({ quotes }: { quotes: Quote[] }) {
+export default function QuotesScreen({ quotes, onSelect }: { quotes: Quote[]; onSelect: (quoteNo: string) => void }) {
   return (
     <ScrollView style={bs.screen} contentContainerStyle={{ paddingBottom: 24 }}>
       <SectionHeader title="Saved Quotes" />
       {quotes.length === 0
         ? <EmptyState icon="Q" title="No quotes yet" sub="Quotes created from the POS screen will appear here" />
         : quotes.map((q, i) => (
-          <View key={i} style={bs.listCard}>
+          <TouchableOpacity key={i} style={bs.listCard} onPress={() => onSelect(q.QuoteNo)}>
             <View style={bs.listRow}>
               <Badge text={'# ' + q.QuoteNo} color="#6366f1" />
               <Badge text={q.QUStatus || 'OPEN'} color="#f59e0b" />
@@ -21,7 +21,7 @@ export default function QuotesScreen({ quotes }: { quotes: Quote[] }) {
               <Text style={bs.listSub}>Excl. VAT</Text>
               <Text style={bs.listPrice}>R {q.SubTotal?.toFixed(2)}</Text>
             </View>
-          </View>
+          </TouchableOpacity>
         ))
       }
     </ScrollView>
