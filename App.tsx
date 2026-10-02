@@ -30,7 +30,6 @@ const TABS: { key: TabKey; label: string; abbr: string }[] = [
   { key: 'stocktake', label: 'Count',   abbr: 'CNT' },
 ];
 
-import { Badge, Divider, EmptyState, SectionHeader, bs } from './src/screens/shared';
 
 // ── Root App ──────────────────────────────────────────────────────
 
@@ -305,8 +304,14 @@ export default function App() {
         {activeTab === 'quotes' && <QuotesScreen quotes={quotesList} />}
         {activeTab === 'invoices' && <InvoicesScreen invoices={invoicesList} />}
         {activeTab === 'products' && (
-          <ProductsScreen products={productsList} search={productSearch}
-            onSearch={setProductSearch} onAddToCart={handleScan} />
+          <ProductsScreen
+            products={productsList}
+            search={productSearch}
+            onSearch={setProductSearch}
+            onAddToCart={handleScan}
+            storeId={currentStore?.StoreId ?? 1}
+            onProductsChanged={() => currentStore ? loadStoreData(currentStore.StoreId) : Promise.resolve()}
+          />
         )}
         {activeTab === 'customers' && (
           <CustomersScreen customers={customers} search={customerSearch}
