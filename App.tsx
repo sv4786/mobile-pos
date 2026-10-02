@@ -16,6 +16,7 @@ import ProductsScreen from './src/screens/ProductsScreen';
 import CustomersScreen from './src/screens/CustomersScreen';
 import CustomerDetailScreen from './src/screens/CustomerDetailScreen';
 import StocktakeScreen from './src/screens/StocktakeScreen';
+import AnalyticsScreen from './src/screens/AnalyticsScreen';
 import PromotionsScreen from './src/screens/PromotionsScreen';
 import StoresScreen from './src/screens/StoresScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
@@ -35,6 +36,7 @@ type TabKey =
   | 'stocktake'
   | 'stores'
   | 'settings'
+  | 'analytics'
   | 'more';
 
 const DRAWER_TABS: { key: TabKey; label: string; icon: string }[] = [
@@ -47,6 +49,7 @@ const DRAWER_TABS: { key: TabKey; label: string; icon: string }[] = [
   { key: 'promotions',  label: 'Promotions',    icon: 'PRO' },
   { key: 'stores',      label: 'Stores',        icon: 'STR' },
   { key: 'settings',    label: 'Settings',      icon: 'SET' },
+  { key: 'analytics',   label: 'Analytics',     icon: 'ANL' },
 ];
 
 function AppContent() {
@@ -663,7 +666,15 @@ function AppContent() {
         )}
 
         {activeTab === 'stocktake' && (
-          <StocktakeScreen scans={stockScans} />
+          <StocktakeScreen
+            scans={stockScans}
+            storeId={currentStore?.StoreId ?? 1}
+            onComplete={() => setStockScans([])}
+          />
+        )}
+
+        {activeTab === 'analytics' && (
+          <AnalyticsScreen storeId={currentStore?.StoreId ?? 1} />
         )}
 
         {activeTab === 'promotions' && (
