@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Alert, Linking, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Linking, Platform, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
 import { posDb } from '../database';
 import { shareDocumentPdf } from '../services/DocumentService';
 import { Divider, EmptyState, SectionHeader, bs } from './shared';
@@ -61,7 +62,10 @@ export default function DocumentDetailScreen({
       return;
     }
     try {
-      await Linking.openURL(pdfPath);
+      const uri = Platform.OS === 'android'
+        ? await FileSystem.getContentUriAsync(pdfPath)
+        : pdfPath;
+      await Linking.openURL(uri);
     } catch {
       Alert.alert('Cannot open PDF', 'No application on this device can open the PDF.');
     }
