@@ -17,6 +17,8 @@ import CustomersScreen from './src/screens/CustomersScreen';
 import StocktakeScreen from './src/screens/StocktakeScreen';
 import PromotionsScreen from './src/screens/PromotionsScreen';
 import StoresScreen from './src/screens/StoresScreen';
+import DocumentDetailScreen from './src/screens/DocumentDetailScreen';
+import { generateDocumentPdf } from './src/services/DocumentService';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 void SCREEN_W;
@@ -60,6 +62,7 @@ function AppContent() {
   const [productsList, setProductsList] = useState<Product[]>([]);
   const [promotionsList, setPromotionsList] = useState<Promotion[]>([]);
   const [stockScans, setStockScans] = useState<StockTakeItem[]>([]);
+  const [documentDetail, setDocumentDetail] = useState<{ type: 'INVOICE' | 'QUOTE'; number: string } | null>(null);
   const [productSearch, setProductSearch] = useState('');
   const [customerSearch, setCustomerSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -307,13 +310,37 @@ function AppContent() {
         })),
       });
 
-      Alert.alert(
-        'Sale Complete!',
-        'Invoice ' +
-          res.inv_no +
-          ' saved to local database.'
-      );
+      let pdfPath: string | null = null;
+      try {
+        pdfPath = await generateDocumentPdf('INVOICE', {
+          number: res.inv_no,
+          company: selectedCustomer?.Company ?? 'Walk-In Cash Customer',
+          date: new Date().toLocaleString(),
+          storeName: currentStore?.StoreDesc,
+          storeCode: currentStore?.StoreCode,
+          tel: currentStore?.Tel,
+          email: currentStore?.Email,
+          subtotal: subExcl,
+          vatTotal: subVat,
+          total: subTotal,
+          paymentMethod: payment.method,
+          items: cart.map(c => ({
+            ItemDesc: c.product.ItemDesc,
+            Qty: c.qty,
+            UnitExcl: c.unit_excl,
+            UnitIncl: c.unit_incl,
+            VatAmount: c.vat_amount,
+            Amount: c.amount,
+          })),
+        });
+        await posDb.setInvoicePdfPath(res.inv_no, pdfPath);
+      } catch (pdfError: any) {
+        Alert.alert('Sale Saved', 'Invoice ' + res.inv_no + ' was saved, but the PDF could not be generated: ' + pdfError.message);
+        setCart([]);
+        return;
+      }
 
+      Alert.alert('Sale Complete!', 'Invoice ' + res.inv_no + ' saved with PDF.');
       setCart([]);
     } catch (e: any) {
       Alert.alert('Error', e.message);
@@ -345,13 +372,35 @@ function AppContent() {
         })),
       });
 
-      Alert.alert(
-        'Quote Saved!',
-        'Quote ' +
-          res.quote_no +
-          ' saved to local database.'
-      );
+      try {
+        const pdfPath = await generateDocumentPdf('QUOTE', {
+          number: res.quote_no,
+          company: selectedCustomer?.Company ?? 'Walk-In Cash Customer',
+          date: new Date().toLocaleString(),
+          storeName: currentStore?.StoreDesc,
+          storeCode: currentStore?.StoreCode,
+          tel: currentStore?.Tel,
+          email: currentStore?.Email,
+          subtotal: subExcl,
+          vatTotal: subVat,
+          total: subTotal,
+          items: cart.map(c => ({
+            ItemDesc: c.product.ItemDesc,
+            Qty: c.qty,
+            UnitExcl: c.unit_excl,
+            UnitIncl: c.unit_incl,
+            VatAmount: c.vat_amount,
+            Amount: c.amount,
+          })),
+        });
+        await posDb.setQuotePdfPath(res.quote_no, pdfPath);
+      } catch (pdfError: any) {
+        Alert.alert('Quote Saved', 'Quote ' + res.quote_no + ' was saved, but the PDF could not be generated: ' + pdfError.message);
+        setCart([]);
+        return;
+      }
 
+      Alert.alert('Quote Saved!', 'Quote ' + res.quote_no + ' saved with PDF.');
       setCart([]);
     } catch (e: any) {
       Alert.alert('Error', e.message);
@@ -536,11 +585,15 @@ function AppContent() {
         )}
 
         {activeTab === 'quotes' && (
-          <QuotesScreen quotes={quotesList} />
+          documentDetail?.type === 'QUOTE'
+            ? <DocumentDetailScreen type="QUOTE" number={documentDetail.number} onClose={() => setDocumentDetail(null)} />
+            : <QuotesScreen quotes={quotesList} onSelect={number => setDocumentDetail({ type: 'QUOTE', number })} />
         )}
 
         {activeTab === 'invoices' && (
-          <InvoicesScreen invoices={invoicesList} />
+          documentDetail?.type === 'INVOICE'
+            ? <DocumentDetailScreen type="INVOICE" number={documentDetail.number} onClose={() => setDocumentDetail(null)} />
+            : <InvoicesScreen invoices={invoicesList} onSelect={number => setDocumentDetail({ type: 'INVOICE', number })} />
         )}
 
         {activeTab === 'products' && (
