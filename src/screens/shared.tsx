@@ -174,6 +174,17 @@ export const bs = StyleSheet.create({
   previewTitle:{ color: '#f9fafb', fontSize: 12, fontWeight: '800', marginBottom: 8 },
   previewText: { color: '#9ca3af', fontSize: 11, marginBottom: 5 },
 
+  settingsCard: { backgroundColor: '#111827', borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: '#1f2937' },
+  settingsSectionTitle: { color: '#f9fafb', fontSize: 14, fontWeight: '800', marginBottom: 12 },
+  settingsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8 },
+  settingsLabel: { color: '#9ca3af', fontSize: 12 },
+  settingsValue: { color: '#f9fafb', fontSize: 13, fontWeight: '700', marginTop: 3 },
+  settingsMeta: { color: '#6366f1', fontSize: 10, fontWeight: '900', letterSpacing: 0.7 },
+  settingsAction: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#161d2b', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 12, marginTop: 8 },
+  settingsActionTitle: { color: '#f9fafb', fontSize: 13, fontWeight: '700' },
+  settingsActionSub: { color: '#6b7280', fontSize: 11, marginTop: 3 },
+  settingsChevron: { color: '#6366f1', fontSize: 26, marginLeft: 10 },
+
   dangerBtn:    { backgroundColor: 'rgba(239,68,68,0.10)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.35)', borderRadius: 8, paddingVertical: 8, alignItems: 'center' },
   dangerBtnText:{ color: '#ef4444', fontSize: 12, fontWeight: '700' },
   overlay:      { flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', padding: 20 },
