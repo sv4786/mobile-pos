@@ -2,7 +2,7 @@ import { ScrollView, Text, View } from 'react-native';
 import { StockTakeItem } from '../types';
 import { Badge, EmptyState, SectionHeader, bs } from './shared';
 
-function StocktakeScreen({ scans }: { scans: StockTakeItem[] }) {
+export default function StocktakeScreen({ scans }: { scans: StockTakeItem[] }) {
   return (
     <ScrollView style={bs.screen} contentContainerStyle={{ paddingBottom: 24 }}>
       <SectionHeader title={'Inventory Count  (' + scans.length + ' scans)'} />
