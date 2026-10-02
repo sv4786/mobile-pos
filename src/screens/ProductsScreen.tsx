@@ -2,7 +2,7 @@ import { FlatList, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { Product } from '../types';
 import { EmptyState, bs } from './shared';
 
-function ProductsScreen({ products, search, onSearch, onAddToCart }: any) {
+export default function ProductsScreen({ products, search, onSearch, onAddToCart }: any) {
   return (
     <View style={{ flex: 1 }}>
       <View style={bs.searchBar}>
