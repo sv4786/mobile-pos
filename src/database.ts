@@ -327,6 +327,100 @@ export const posDb = {
     return await d.getAllAsync<Customer>(`SELECT AccId, AccCode, Company, Contact, Tel, Cell, Email, PriceListId, COALESCE(AutoDisc, 0) as AutoDisc, COALESCE(AllowPriceMatrix, 0) as AllowPriceMatrix, CrLimit FROM aracc ORDER BY Company LIMIT 50`);
   },
 
+  createProduct: async (data: {
+    name: string;
+    code: string;
+    barcode?: string;
+    price: number;
+    cost?: number;
+    quantity?: number;
+    vat?: string;
+    storeId: number;
+  }) => {
+    const d = await getDb();
+    const name = data.name.trim();
+    const code = data.code.trim();
+
+    if (!name || !code) throw new Error('Product name and product code are required.');
+    if (!Number.isFinite(data.price) || data.price < 0) throw new Error('Price must be a valid number.');
+
+    const existing = await d.getFirstAsync<{ ItemId: number }>(
+      'SELECT ItemId FROM initem WHERE ItemCode = ? LIMIT 1',
+      [code]
+    );
+    if (existing) throw new Error('A product with this code already exists.');
+
+    const itemRow = await d.getFirstAsync<{ nextId: number }>(
+      'SELECT COALESCE(MAX(ItemId), 0) + 1 as nextId FROM initem'
+    );
+    const stockRow = await d.getFirstAsync<{ nextId: number }>(
+      'SELECT COALESCE(MAX(StockId), 0) + 1 as nextId FROM instock'
+    );
+
+    const itemId = itemRow?.nextId || 1;
+    const stockId = stockRow?.nextId || 1;
+    const quantity = Number.isFinite(data.quantity) ? data.quantity || 0 : 0;
+    const cost = Number.isFinite(data.cost) ? data.cost || 0 : 0;
+    const vat = (data.vat || 'Y').trim().toUpperCase() || 'Y';
+
+    await d.withTransactionAsync(async () => {
+      await d.runAsync(
+        'INSERT INTO initem (ItemId, ItemCode, ItemDesc, PackSize, Vat, IsScannable) VALUES (?, ?, ?, ?, ?, ?)',
+        [itemId, code, name, 1, vat, data.barcode?.trim() ? 1 : 0]
+      );
+
+      await d.runAsync(
+        'INSERT INTO instock (ItemId, StockId, StockCode, IsActive) VALUES (?, ?, ?, 1)',
+        [itemId, stockId, code]
+      );
+
+      await d.runAsync(
+        'INSERT INTO inprice (ItemId, StockId, LastCost, AvgCost, POSPrice1, SellPrice1) VALUES (?, ?, ?, ?, ?, ?)',
+        [itemId, stockId, cost, cost, data.price, data.price]
+      );
+
+      await d.runAsync(
+        'INSERT INTO inqty (ItemId, StockId, StoreId, QtyOnHand) VALUES (?, ?, ?, ?)',
+        [itemId, stockId, data.storeId, quantity]
+      );
+
+      if (data.barcode?.trim()) {
+        await d.runAsync(
+          'INSERT INTO instockbarcode (ItemId, StockId, BarcodeId, Barcode, IsActive) VALUES (?, ?, ?, ?, 1)',
+          [itemId, stockId, itemId, data.barcode.trim()]
+        );
+      }
+    });
+
+    return { itemId, stockId };
+  },
+
+  importProducts: async (products: Array<{
+    name: string;
+    code: string;
+    barcode?: string;
+    price: number;
+    cost?: number;
+    quantity?: number;
+    vat?: string;
+  }>, storeId: number) => {
+    let imported = 0;
+    let skipped = 0;
+    const errors: string[] = [];
+
+    for (let i = 0; i < products.length; i++) {
+      try {
+        await posDb.createProduct({ ...products[i], storeId });
+        imported++;
+      } catch (err: any) {
+        skipped++;
+        errors.push(`Row ${i + 2}: ${err?.message || 'Could not import row'}`);
+      }
+    }
+
+    return { imported, skipped, errors };
+  },
+
   getProductByBarcode: async (barcode: string, storeId: number = 1): Promise<Product> => {
     const d = await getDb();
     const row = await d.getFirstAsync<Product>(`
