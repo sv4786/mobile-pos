@@ -174,6 +174,10 @@ export const bs = StyleSheet.create({
   previewTitle:{ color: '#f9fafb', fontSize: 12, fontWeight: '800', marginBottom: 8 },
   previewText: { color: '#9ca3af', fontSize: 11, marginBottom: 5 },
 
+  dangerBtn:    { backgroundColor: 'rgba(239,68,68,0.10)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.35)', borderRadius: 8, paddingVertical: 8, alignItems: 'center' },
+  dangerBtnText:{ color: '#ef4444', fontSize: 12, fontWeight: '700' },
+  overlay:      { flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', padding: 20 },
+  dialog:       { backgroundColor: '#111827', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#2d3748' },
   // Bottom nav
   nav:          { flexDirection: 'row', backgroundColor: '#0d1117', borderTopWidth: 1, borderTopColor: '#1f2937', paddingBottom: 4, minHeight: 68 },
   navItem:      { flex: 1, alignItems: 'center', paddingTop: 8, paddingBottom: 2, position: 'relative' },
