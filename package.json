@@ -8,6 +8,7 @@
     "expo-camera": "~57.0.6",
     "expo-document-picker": "~57.0.3",
     "expo-file-system": "~57.0.7",
+    "expo-intent-launcher": "~57.0.1",
     "expo-print": "~57.0.2",
     "expo-sharing": "~57.0.22",
     "expo-sqlite": "~57.0.3",
@@ -15,8 +16,7 @@
     "react": "19.2.3",
     "react-native": "0.86.3",
     "react-native-safe-area-context": "~5.7.0",
-    "typescript": "~6.0.3",
-    "expo-intent-launcher": "~57.0.1"
+    "typescript": "~6.0.3"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
