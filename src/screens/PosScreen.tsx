@@ -2,7 +2,7 @@ import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { CartItem } from '../types';
 import { Badge, Divider, EmptyState, SectionHeader, bs } from './shared';
 
-function PosScreen({ cart, selectedCustomer, subExcl, subVat, subTotal, onQtyChange, onRemove, onInvoice, onQuote, onChangeCustomer }: any) {
+export default function PosScreen({ cart, selectedCustomer, subExcl, subVat, subTotal, onQtyChange, onRemove, onInvoice, onQuote, onChangeCustomer }: any) {
   return (
     <ScrollView style={bs.screen} contentContainerStyle={{ paddingBottom: 24 }}>
       <TouchableOpacity style={bs.customerStrip} onPress={onChangeCustomer}>
