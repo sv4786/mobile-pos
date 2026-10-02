@@ -1,6 +1,6 @@
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system/legacy';
+import { File, Paths } from 'expo-file-system';
 
 type DocumentItem = {
   ItemDesc: string;
@@ -121,14 +121,15 @@ export async function generateDocumentPdf(
   const result = await Print.printToFileAsync({ html, base64: false });
   if (!result.uri) throw new Error('PDF generation did not return a file.');
 
-  const folder = FileSystem.documentDirectory;
-  if (!folder) throw new Error('Local document storage is unavailable.');
-
   const safeName = data.number.replace(/[^a-zA-Z0-9_-]/g, '_');
-  const target = `${folder}${safeName}.pdf`;
+  const source = new File(result.uri);
+  if (!source.exists) throw new Error('Generated PDF file is not readable.');
 
-  await FileSystem.copyAsync({ from: result.uri, to: target });
-  return target;
+  const target = new File(Paths.document, `${safeName}.pdf`);
+  if (target.exists) target.delete();
+  await source.copy(target);
+
+  return target.uri;
 }
 
 export async function shareDocumentPdf(uri: string) {
