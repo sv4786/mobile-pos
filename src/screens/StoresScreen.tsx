@@ -2,7 +2,7 @@ import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { Store } from '../types';
 import { Badge, SectionHeader, bs } from './shared';
 
-function StoresScreen({ stores, current, onSwitch }: any) {
+export default function StoresScreen({ stores, current, onSwitch }: any) {
   return (
     <ScrollView style={bs.screen} contentContainerStyle={{ paddingBottom: 24 }}>
       <SectionHeader title="Store Locations" />
