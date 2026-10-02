@@ -93,6 +93,10 @@ function AppContent() {
 
       if (storesData.length > 0) {
         setCurrentStore(storesData[0]);
+      } else {
+        // Fresh installs intentionally start without seeded business data.
+        // Keep the default local store ID so products can still be created and listed.
+        await loadStoreData(1);
       }
     } catch (err: any) {
       Alert.alert('Startup Error', err.message);
@@ -425,15 +429,13 @@ function AppContent() {
 
   useEffect(() => {
     const t = setTimeout(async () => {
-      if (currentStore) {
-        setProductsList(
-          await posDb.searchProducts(
-            productSearch,
-            currentStore.StoreId,
-            50
-          )
-        );
-      }
+      setProductsList(
+        await posDb.searchProducts(
+          productSearch,
+          currentStore?.StoreId ?? 1,
+          50
+        )
+      );
     }, 350);
 
     return () => clearTimeout(t);
@@ -604,9 +606,7 @@ function AppContent() {
             onAddToCart={handleScan}
             storeId={currentStore?.StoreId ?? 1}
             onProductsChanged={() =>
-              currentStore
-                ? loadStoreData(currentStore.StoreId)
-                : Promise.resolve()
+              loadStoreData(currentStore?.StoreId ?? 1)
             }
           />
         )}
