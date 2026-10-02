@@ -347,11 +347,96 @@ export const posDb = {
         SELECT AccId, AccCode, Company, Contact, Tel, Cell, Email, PriceListId,
                COALESCE(AutoDisc, 0) as AutoDisc, COALESCE(AllowPriceMatrix, 0) as AllowPriceMatrix, CrLimit
         FROM aracc
-        WHERE Company LIKE ? OR AccCode LIKE ? OR Contact LIKE ? OR Tel LIKE ?
+        WHERE Company LIKE ? OR AccCode LIKE ? OR Contact LIKE ? OR Tel LIKE ? OR Cell LIKE ? OR Email LIKE ?
         ORDER BY Company LIMIT 50
-      `, [queryStr, queryStr, queryStr, queryStr]);
+      `, [queryStr, queryStr, queryStr, queryStr, queryStr, queryStr]);
     }
     return await d.getAllAsync<Customer>(`SELECT AccId, AccCode, Company, Contact, Tel, Cell, Email, PriceListId, COALESCE(AutoDisc, 0) as AutoDisc, COALESCE(AllowPriceMatrix, 0) as AllowPriceMatrix, CrLimit FROM aracc ORDER BY Company LIMIT 50`);
+  },
+
+  createCustomer: async (data: {
+    code: string; company: string; contact?: string; tel?: string; cell?: string; email?: string;
+    priceListId?: number; autoDisc?: number; allowPriceMatrix?: number; crLimit?: number;
+  }) => {
+    const d = await getDb();
+    const code = data.code.trim();
+    const company = data.company.trim();
+    if (!code || !company) throw new Error('Customer code and company name are required.');
+    const duplicate = await d.getFirstAsync<{ AccId: number }>('SELECT AccId FROM aracc WHERE AccCode = ? LIMIT 1', [code]);
+    if (duplicate) throw new Error('A customer with this account code already exists.');
+    const idRow = await d.getFirstAsync<{ nextId: number }>('SELECT COALESCE(MAX(AccId), 0) + 1 as nextId FROM aracc');
+    const accId = idRow?.nextId || 1;
+    const autoDisc = Number.isFinite(data.autoDisc) ? Math.max(0, Number(data.autoDisc)) : 0;
+    const allowMatrix = data.allowPriceMatrix ? 1 : 0;
+    const crLimit = Number.isFinite(data.crLimit) ? Math.max(0, Number(data.crLimit)) : 0;
+    await d.runAsync(`
+      INSERT INTO aracc (AccId, AccCode, Company, Contact, Tel, Cell, Email, PriceListId, AutoDisc, AllowPriceMatrix, CrLimit)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [accId, code, company, data.contact?.trim() || '', data.tel?.trim() || '', data.cell?.trim() || '', data.email?.trim() || '', data.priceListId || null, autoDisc, allowMatrix, crLimit]);
+    return await d.getFirstAsync<Customer>('SELECT AccId, AccCode, Company, Contact, Tel, Cell, Email, PriceListId, COALESCE(AutoDisc,0) AutoDisc, COALESCE(AllowPriceMatrix,0) AllowPriceMatrix, CrLimit FROM aracc WHERE AccId = ?', [accId]);
+  },
+
+  updateCustomer: async (accId: number, data: {
+    code: string; company: string; contact?: string; tel?: string; cell?: string; email?: string;
+    priceListId?: number; autoDisc?: number; allowPriceMatrix?: number; crLimit?: number;
+  }) => {
+    const d = await getDb();
+    const code = data.code.trim();
+    const company = data.company.trim();
+    if (!code || !company) throw new Error('Customer code and company name are required.');
+    const duplicate = await d.getFirstAsync<{ AccId: number }>('SELECT AccId FROM aracc WHERE AccCode = ? AND AccId <> ? LIMIT 1', [code, accId]);
+    if (duplicate) throw new Error('Another customer already uses this account code.');
+    const autoDisc = Number.isFinite(data.autoDisc) ? Math.max(0, Number(data.autoDisc)) : 0;
+    const allowMatrix = data.allowPriceMatrix ? 1 : 0;
+    const crLimit = Number.isFinite(data.crLimit) ? Math.max(0, Number(data.crLimit)) : 0;
+    await d.runAsync(`
+      UPDATE aracc SET AccCode = ?, Company = ?, Contact = ?, Tel = ?, Cell = ?, Email = ?,
+        PriceListId = ?, AutoDisc = ?, AllowPriceMatrix = ?, CrLimit = ?
+      WHERE AccId = ?
+    `, [code, company, data.contact?.trim() || '', data.tel?.trim() || '', data.cell?.trim() || '', data.email?.trim() || '', data.priceListId || null, autoDisc, allowMatrix, crLimit, accId]);
+    return await d.getFirstAsync<Customer>('SELECT AccId, AccCode, Company, Contact, Tel, Cell, Email, PriceListId, COALESCE(AutoDisc,0) AutoDisc, COALESCE(AllowPriceMatrix,0) AllowPriceMatrix, CrLimit FROM aracc WHERE AccId = ?', [accId]);
+  },
+
+  deleteCustomer: async (accId: number) => {
+    const d = await getDb();
+    if (accId === 1) throw new Error('The walk-in cash customer cannot be deleted.');
+    const invoice = await d.getFirstAsync<{ count: number }>('SELECT COUNT(*) count FROM ininvlist WHERE AccId = ?', [accId]);
+    const quote = await d.getFirstAsync<{ count: number }>('SELECT COUNT(*) count FROM inqulist WHERE AccId = ?', [accId]);
+    if ((invoice?.count || 0) > 0 || (quote?.count || 0) > 0) {
+      throw new Error('This customer has sales history and cannot be deleted.');
+    }
+    await d.runAsync('DELETE FROM arpmatrix WHERE AccId = ?', [accId]);
+    await d.runAsync('DELETE FROM aracc WHERE AccId = ?', [accId]);
+  },
+
+  getCustomerDetails: async (accId: number) => {
+    const d = await getDb();
+    const customer = await d.getFirstAsync<Customer>('SELECT AccId, AccCode, Company, Contact, Tel, Cell, Email, PriceListId, COALESCE(AutoDisc,0) AutoDisc, COALESCE(AllowPriceMatrix,0) AllowPriceMatrix, CrLimit FROM aracc WHERE AccId = ?', [accId]);
+    if (!customer) return null;
+    const invoices = await d.getAllAsync<Invoice>(`
+      SELECT INVNo, AccId, StoreId, Company, CreatedDt, SubTotal, VatTotal, AmtPaid, SerialNo, PdfPath
+      FROM ininvlist WHERE AccId = ? ORDER BY CreatedDt DESC, INVNo DESC LIMIT 100
+    `, [accId]);
+    const quotes = await d.getAllAsync<Quote>(`
+      SELECT QuoteNo, AccId, StoreId, Company, Date, SubTotal, VatTotal, DiscPerc, QUStatus, PdfPath
+      FROM inqulist WHERE AccId = ? ORDER BY Date DESC, QuoteNo DESC LIMIT 100
+    `, [accId]);
+    const invoiceTotal = invoices.reduce((sum, row) => sum + Number(row.SubTotal || 0) + Number(row.VatTotal || 0), 0);
+    const paidTotal = invoices.reduce((sum, row) => sum + Number(row.AmtPaid || 0), 0);
+    const quoteTotal = quotes.reduce((sum, row) => sum + Number(row.SubTotal || 0) + Number(row.VatTotal || 0), 0);
+    return {
+      customer,
+      invoices,
+      quotes,
+      totals: {
+        purchases: Math.round(invoiceTotal * 100) / 100,
+        paid: Math.round(paidTotal * 100) / 100,
+        outstanding: Math.round(Math.max(0, invoiceTotal - paidTotal) * 100) / 100,
+        invoiceCount: invoices.length,
+        quoteCount: quotes.length,
+        quoteValue: Math.round(quoteTotal * 100) / 100,
+      },
+    };
   },
 
   createProduct: async (data: {
