@@ -7,7 +7,8 @@ export async function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (db) return db;
   db = await SQLite.openDatabaseAsync('mobile_pos.db');
   await initDatabaseSchema(db);
-  await seedDatabase(db);
+  // Database starts empty on a fresh install.
+  // SQLite persists this database across normal app restarts and launches.
   return db;
 }
 
