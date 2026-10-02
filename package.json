@@ -11,7 +11,7 @@
     "react": "19.2.3",
     "react-native": "0.86.3",
     "typescript": "~6.0.3",
-    "expo-document-picker": "~14.0.8"
+    "expo-document-picker": "~57.0.3"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
