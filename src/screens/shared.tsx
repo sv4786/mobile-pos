@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 
-function Badge({ text, color }: { text: string; color: string }) {
+export function Badge({ text, color }: { text: string; color: string }) {
   return (
     <View style={[bs.badge, { backgroundColor: color + '22', borderColor: color + '55' }]}>
       <Text style={[bs.badgeText, { color }]}>{text}</Text>
@@ -8,11 +8,11 @@ function Badge({ text, color }: { text: string; color: string }) {
   );
 }
 
-function Divider() {
+export function Divider() {
   return <View style={bs.divider} />;
 }
 
-function SectionHeader({ title }: { title: string }) {
+export function SectionHeader({ title }: { title: string }) {
   return (
     <View style={bs.sectionRow}>
       <View style={bs.sectionBar} />
@@ -21,7 +21,7 @@ function SectionHeader({ title }: { title: string }) {
   );
 }
 
-function EmptyState({ icon, title, sub }: { icon: string; title: string; sub: string }) {
+export function EmptyState({ icon, title, sub }: { icon: string; title: string; sub: string }) {
   return (
     <View style={bs.emptyWrap}>
       <Text style={bs.emptyIcon}>{icon}</Text>
@@ -33,7 +33,7 @@ function EmptyState({ icon, title, sub }: { icon: string; title: string; sub: st
 
 // ── Styles ────────────────────────────────────────────────────────
 
-const bs = StyleSheet.create({
+export const bs = StyleSheet.create({
   root:   { flex: 1, backgroundColor: '#07090f' },
   screen: { flex: 1, paddingHorizontal: 12 },
   body:   { flex: 1 },
