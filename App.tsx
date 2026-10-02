@@ -36,13 +36,6 @@ type TabKey =
   | 'settings'
   | 'more';
 
-const TABS: { key: TabKey; label: string; abbr: string }[] = [
-  { key: 'pos',       label: 'POS',      abbr: 'POS' },
-  { key: 'quotes',    label: 'Quotes',   abbr: 'QT'  },
-  { key: 'invoices',  label: 'Invoices', abbr: 'INV' },
-  { key: 'products',  label: 'Items',    abbr: 'ITM' },
-];
-
 const DRAWER_TABS: { key: TabKey; label: string; icon: string }[] = [
   { key: 'pos',         label: 'Point of Sale', icon: 'POS' },
   { key: 'quotes',      label: 'Quotes',        icon: 'QT' },
@@ -522,14 +515,24 @@ function AppContent() {
           </View>
         </View>
 
-        <TouchableOpacity
-          style={bs.scanFab}
-          onPress={openCamera}
-        >
-          <Text style={bs.scanFabText}>
-            [ Scan ]
-          </Text>
-        </TouchableOpacity>
+        <View style={bs.headerActions}>
+          <TouchableOpacity
+            style={bs.menuButton}
+            onPress={() => setDrawerOpen(true)}
+            accessibilityLabel="Open navigation menu"
+          >
+            <Text style={bs.menuButtonText}>☰</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={bs.scanFab}
+            onPress={openCamera}
+          >
+            <Text style={bs.scanFabText}>
+              [ Scan ]
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Barcode bar */}
@@ -777,16 +780,6 @@ function AppContent() {
         </SafeAreaView>
       </Modal>
 
-      {/* Navigation is handled by the hamburger sidebar to preserve phone screen space. */}
-    </View>
-              <Text style={[bs.navLabel, active && bs.navLabelActive]}>
-                {t.label}
-              </Text>
-              {active && <View style={bs.navDot} />}
-            </TouchableOpacity>
-          );
-        })}
-      </View>
     </View>
   );
 }
@@ -892,6 +885,12 @@ const bs = StyleSheet.create({
     fontSize: 11,
     fontWeight: '900',
     letterSpacing: 1.2,
+  },
+
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
 
   scanFab: {
