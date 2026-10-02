@@ -2,14 +2,24 @@ import * as SQLite from 'expo-sqlite';
 import { Product, Store, Customer, Quote, Invoice, Promotion } from './types';
 
 let db: SQLite.SQLiteDatabase | null = null;
+let dbInitPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
 export async function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (db) return db;
-  db = await SQLite.openDatabaseAsync('mobile_pos.db');
-  await initDatabaseSchema(db);
-  // Database starts empty on a fresh install.
-  // SQLite persists this database across normal app restarts and launches.
-  return db;
+  if (dbInitPromise) return dbInitPromise;
+
+  dbInitPromise = (async () => {
+    const opened = await SQLite.openDatabaseAsync('mobile_pos.db');
+    await initDatabaseSchema(opened);
+    db = opened;
+    return opened;
+  })();
+
+  try {
+    return await dbInitPromise;
+  } finally {
+    dbInitPromise = null;
+  }
 }
 
 async function initDatabaseSchema(d: SQLite.SQLiteDatabase) {
@@ -152,7 +162,8 @@ async function initDatabaseSchema(d: SQLite.SQLiteDatabase) {
       CreatedBy TEXT,
       CreatedDt TEXT,
       SerialNo TEXT,
-      Posted TEXT
+      Posted TEXT,
+      PdfPath TEXT
     );
 
     CREATE TABLE IF NOT EXISTS inqustock (
@@ -194,7 +205,8 @@ async function initDatabaseSchema(d: SQLite.SQLiteDatabase) {
       CreatedBy TEXT,
       CreatedDt TEXT,
       Posted TEXT,
-      SerialNo TEXT
+      SerialNo TEXT,
+      PdfPath TEXT
     );
 
     CREATE TABLE IF NOT EXISTS ininvstock (
@@ -234,15 +246,20 @@ async function initDatabaseSchema(d: SQLite.SQLiteDatabase) {
     );
   `);
 
-  const quoteColumns = await d.getAllAsync<{ name: string }>('PRAGMA table_info(inqulist)');
-  if (!quoteColumns.some(column => column.name === 'PdfPath')) {
-    await d.runAsync('ALTER TABLE inqulist ADD COLUMN PdfPath TEXT');
-  }
+  const ensureColumn = async (table: string, column: string) => {
+    const columns = await d.getAllAsync<{ name: string }>(`PRAGMA table_info(${table})`);
+    if (columns.some(existing => existing.name.toLowerCase() === column.toLowerCase())) return;
 
-  const invoiceColumns = await d.getAllAsync<{ name: string }>('PRAGMA table_info(ininvlist)');
-  if (!invoiceColumns.some(column => column.name === 'PdfPath')) {
-    await d.runAsync('ALTER TABLE ininvlist ADD COLUMN PdfPath TEXT');
-  }
+    try {
+      await d.runAsync(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT`);
+    } catch (error: any) {
+      const message = String(error?.message || error);
+      if (!message.toLowerCase().includes('duplicate column')) throw error;
+    }
+  };
+
+  await ensureColumn('inqulist', 'PdfPath');
+  await ensureColumn('ininvlist', 'PdfPath');
 }
 
 async function seedDatabase(d: SQLite.SQLiteDatabase) {
