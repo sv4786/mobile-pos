@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { File } from 'expo-file-system';
+import * as IntentLauncher from 'expo-intent-launcher';
 import { posDb } from '../database';
 import { shareDocumentPdf } from '../services/DocumentService';
 import { Divider, EmptyState, SectionHeader, bs } from './shared';
@@ -67,9 +68,10 @@ export default function DocumentDetailScreen({
         throw new Error('The stored PDF file no longer exists.');
       }
 
-      await file.preview({
-        title: type === 'INVOICE' ? 'Invoice PDF' : 'Quote PDF',
-        mimeType: 'application/pdf',
+      await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
+        data: file.contentUri,
+        type: 'application/pdf',
+        flags: 1,
       });
     } catch {
       Alert.alert('Cannot open PDF', 'No application on this device can open the PDF.');
