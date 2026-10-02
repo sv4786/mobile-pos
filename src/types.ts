@@ -97,3 +97,17 @@ export interface StockTakeItem {
   qty: number;
   timestamp: string;
 }
+
+export interface CustomerDetails {
+  customer: Customer;
+  invoices: Invoice[];
+  quotes: Quote[];
+  totals: {
+    purchases: number;
+    paid: number;
+    outstanding: number;
+    invoiceCount: number;
+    quoteCount: number;
+    quoteValue: number;
+  };
+}

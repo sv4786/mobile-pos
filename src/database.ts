@@ -244,6 +244,17 @@ async function initDatabaseSchema(d: SQLite.SQLiteDatabase) {
       RepCode TEXT,
       FullName TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS instocktakeline (
+      StockTakeId INTEGER,
+      ItemId INTEGER,
+      StockId INTEGER,
+      ExpectedQty REAL,
+      CountedQty REAL,
+      Difference REAL,
+      CreatedDt TEXT,
+      PRIMARY KEY (StockTakeId, ItemId, StockId)
+    );
   `);
 
   const ensureColumn = async (table: string, column: string) => {
@@ -347,11 +358,220 @@ export const posDb = {
         SELECT AccId, AccCode, Company, Contact, Tel, Cell, Email, PriceListId,
                COALESCE(AutoDisc, 0) as AutoDisc, COALESCE(AllowPriceMatrix, 0) as AllowPriceMatrix, CrLimit
         FROM aracc
-        WHERE Company LIKE ? OR AccCode LIKE ? OR Contact LIKE ? OR Tel LIKE ?
+        WHERE Company LIKE ? OR AccCode LIKE ? OR Contact LIKE ? OR Tel LIKE ? OR Cell LIKE ? OR Email LIKE ?
         ORDER BY Company LIMIT 50
-      `, [queryStr, queryStr, queryStr, queryStr]);
+      `, [queryStr, queryStr, queryStr, queryStr, queryStr, queryStr]);
     }
     return await d.getAllAsync<Customer>(`SELECT AccId, AccCode, Company, Contact, Tel, Cell, Email, PriceListId, COALESCE(AutoDisc, 0) as AutoDisc, COALESCE(AllowPriceMatrix, 0) as AllowPriceMatrix, CrLimit FROM aracc ORDER BY Company LIMIT 50`);
+  },
+
+  createCustomer: async (data: {
+    code: string; company: string; contact?: string; tel?: string; cell?: string; email?: string;
+    priceListId?: number; autoDisc?: number; allowPriceMatrix?: number; crLimit?: number;
+  }) => {
+    const d = await getDb();
+    const code = data.code.trim();
+    const company = data.company.trim();
+    if (!code || !company) throw new Error('Customer code and company name are required.');
+    const duplicate = await d.getFirstAsync<{ AccId: number }>('SELECT AccId FROM aracc WHERE AccCode = ? LIMIT 1', [code]);
+    if (duplicate) throw new Error('A customer with this account code already exists.');
+    const idRow = await d.getFirstAsync<{ nextId: number }>('SELECT COALESCE(MAX(AccId), 0) + 1 as nextId FROM aracc');
+    const accId = idRow?.nextId || 1;
+    const autoDisc = Number.isFinite(data.autoDisc) ? Math.max(0, Number(data.autoDisc)) : 0;
+    const allowMatrix = data.allowPriceMatrix ? 1 : 0;
+    const crLimit = Number.isFinite(data.crLimit) ? Math.max(0, Number(data.crLimit)) : 0;
+    await d.runAsync(`
+      INSERT INTO aracc (AccId, AccCode, Company, Contact, Tel, Cell, Email, PriceListId, AutoDisc, AllowPriceMatrix, CrLimit)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [accId, code, company, data.contact?.trim() || '', data.tel?.trim() || '', data.cell?.trim() || '', data.email?.trim() || '', data.priceListId || null, autoDisc, allowMatrix, crLimit]);
+    return await d.getFirstAsync<Customer>('SELECT AccId, AccCode, Company, Contact, Tel, Cell, Email, PriceListId, COALESCE(AutoDisc,0) AutoDisc, COALESCE(AllowPriceMatrix,0) AllowPriceMatrix, CrLimit FROM aracc WHERE AccId = ?', [accId]);
+  },
+
+  updateCustomer: async (accId: number, data: {
+    code: string; company: string; contact?: string; tel?: string; cell?: string; email?: string;
+    priceListId?: number; autoDisc?: number; allowPriceMatrix?: number; crLimit?: number;
+  }) => {
+    const d = await getDb();
+    const code = data.code.trim();
+    const company = data.company.trim();
+    if (!code || !company) throw new Error('Customer code and company name are required.');
+    const duplicate = await d.getFirstAsync<{ AccId: number }>('SELECT AccId FROM aracc WHERE AccCode = ? AND AccId <> ? LIMIT 1', [code, accId]);
+    if (duplicate) throw new Error('Another customer already uses this account code.');
+    const autoDisc = Number.isFinite(data.autoDisc) ? Math.max(0, Number(data.autoDisc)) : 0;
+    const allowMatrix = data.allowPriceMatrix ? 1 : 0;
+    const crLimit = Number.isFinite(data.crLimit) ? Math.max(0, Number(data.crLimit)) : 0;
+    await d.runAsync(`
+      UPDATE aracc SET AccCode = ?, Company = ?, Contact = ?, Tel = ?, Cell = ?, Email = ?,
+        PriceListId = ?, AutoDisc = ?, AllowPriceMatrix = ?, CrLimit = ?
+      WHERE AccId = ?
+    `, [code, company, data.contact?.trim() || '', data.tel?.trim() || '', data.cell?.trim() || '', data.email?.trim() || '', data.priceListId || null, autoDisc, allowMatrix, crLimit, accId]);
+    return await d.getFirstAsync<Customer>('SELECT AccId, AccCode, Company, Contact, Tel, Cell, Email, PriceListId, COALESCE(AutoDisc,0) AutoDisc, COALESCE(AllowPriceMatrix,0) AllowPriceMatrix, CrLimit FROM aracc WHERE AccId = ?', [accId]);
+  },
+
+  deleteCustomer: async (accId: number) => {
+    const d = await getDb();
+    if (accId === 1) throw new Error('The walk-in cash customer cannot be deleted.');
+    const invoice = await d.getFirstAsync<{ count: number }>('SELECT COUNT(*) count FROM ininvlist WHERE AccId = ?', [accId]);
+    const quote = await d.getFirstAsync<{ count: number }>('SELECT COUNT(*) count FROM inqulist WHERE AccId = ?', [accId]);
+    if ((invoice?.count || 0) > 0 || (quote?.count || 0) > 0) {
+      throw new Error('This customer has sales history and cannot be deleted.');
+    }
+    await d.runAsync('DELETE FROM arpmatrix WHERE AccId = ?', [accId]);
+    await d.runAsync('DELETE FROM aracc WHERE AccId = ?', [accId]);
+  },
+
+  getCustomerDetails: async (accId: number) => {
+    const d = await getDb();
+    const customer = await d.getFirstAsync<Customer>('SELECT AccId, AccCode, Company, Contact, Tel, Cell, Email, PriceListId, COALESCE(AutoDisc,0) AutoDisc, COALESCE(AllowPriceMatrix,0) AllowPriceMatrix, CrLimit FROM aracc WHERE AccId = ?', [accId]);
+    if (!customer) return null;
+    const invoices = await d.getAllAsync<Invoice>(`
+      SELECT INVNo, AccId, StoreId, Company, CreatedDt, SubTotal, VatTotal, AmtPaid, SerialNo, PdfPath
+      FROM ininvlist WHERE AccId = ? ORDER BY CreatedDt DESC, INVNo DESC LIMIT 100
+    `, [accId]);
+    const quotes = await d.getAllAsync<Quote>(`
+      SELECT QuoteNo, AccId, StoreId, Company, Date, SubTotal, VatTotal, DiscPerc, QUStatus, PdfPath
+      FROM inqulist WHERE AccId = ? ORDER BY Date DESC, QuoteNo DESC LIMIT 100
+    `, [accId]);
+    const invoiceTotal = invoices.reduce((sum, row) => sum + Number(row.SubTotal || 0) + Number(row.VatTotal || 0), 0);
+    const paidTotal = invoices.reduce((sum, row) => sum + Number(row.AmtPaid || 0), 0);
+    const quoteTotal = quotes.reduce((sum, row) => sum + Number(row.SubTotal || 0) + Number(row.VatTotal || 0), 0);
+    return {
+      customer,
+      invoices,
+      quotes,
+      totals: {
+        purchases: Math.round(invoiceTotal * 100) / 100,
+        paid: Math.round(paidTotal * 100) / 100,
+        outstanding: Math.round(Math.max(0, invoiceTotal - paidTotal) * 100) / 100,
+        invoiceCount: invoices.length,
+        quoteCount: quotes.length,
+        quoteValue: Math.round(quoteTotal * 100) / 100,
+      },
+    };
+  },
+
+  getStockTakeItems: async (storeId: number) => {
+    const d = await getDb();
+    return await d.getAllAsync<any>(`
+      SELECT i.ItemId, i.ItemCode, i.ItemDesc, s.StockId, s.StockCode,
+             COALESCE(q.QtyOnHand, 0) as ExpectedQty,
+             b.Barcode
+      FROM initem i
+      JOIN instock s ON s.ItemId = i.ItemId AND s.IsActive = 1
+      LEFT JOIN inqty q ON q.ItemId = i.ItemId AND q.StockId = s.StockId AND q.StoreId = ?
+      LEFT JOIN instockbarcode b ON b.ItemId = i.ItemId AND b.StockId = s.StockId AND b.IsActive = 1
+      ORDER BY i.ItemDesc
+    `, [storeId]);
+  },
+
+  finalizeStockTake: async (storeId: number, scans: Array<{ itemId: number; stockId: number; countedQty: number }>, createdBy = 'POS') => {
+    const d = await getDb();
+    if (!scans.length) throw new Error('Scan at least one product before finalising the stock take.');
+    const now = new Date().toISOString();
+    const idRow = await d.getFirstAsync<{ nextId: number }>('SELECT COALESCE(MAX(StockTakeId), 0) + 1 as nextId FROM instocktake');
+    const stockTakeId = idRow?.nextId || 1;
+    const stockTakeNo = 'ST-' + String(stockTakeId).padStart(6, '0');
+
+    await d.withTransactionAsync(async () => {
+      await d.runAsync(
+        'INSERT INTO instocktake (StoreId, StockTakeId, StockTakeNo, StockTakeText, CreatedDt, CreatedBy, Posted) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [storeId, stockTakeId, stockTakeNo, 'Mobile POS Stock Take', now, createdBy, 'Y']
+      );
+
+      for (const row of scans) {
+        const expected = await d.getFirstAsync<{ QtyOnHand: number }>(
+          'SELECT COALESCE(QtyOnHand, 0) as QtyOnHand FROM inqty WHERE ItemId = ? AND StockId = ? AND StoreId = ?',
+          [row.itemId, row.stockId, storeId]
+        );
+        const expectedQty = Number(expected?.QtyOnHand || 0);
+        const countedQty = Math.max(0, Number(row.countedQty || 0));
+        const difference = countedQty - expectedQty;
+
+        await d.runAsync(
+          'INSERT INTO instocktakeline (StockTakeId, ItemId, StockId, ExpectedQty, CountedQty, Difference, CreatedDt) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [stockTakeId, row.itemId, row.stockId, expectedQty, countedQty, difference, now]
+        );
+
+        await d.runAsync(
+          'INSERT OR IGNORE INTO inqty (ItemId, StockId, StoreId, QtyOnHand) VALUES (?, ?, ?, 0)',
+          [row.itemId, row.stockId, storeId]
+        );
+        await d.runAsync(
+          'UPDATE inqty SET QtyOnHand = ? WHERE ItemId = ? AND StockId = ? AND StoreId = ?',
+          [countedQty, row.itemId, row.stockId, storeId]
+        );
+      }
+    });
+
+    return { stockTakeId, stockTakeNo };
+  },
+
+  getStockTakeHistory: async (storeId: number) => {
+    const d = await getDb();
+    return await d.getAllAsync<any>(`
+      SELECT h.StockTakeId, h.StockTakeNo, h.CreatedDt, h.CreatedBy,
+             COUNT(l.ItemId) as ItemCount,
+             SUM(CASE WHEN ABS(l.Difference) > 0.0001 THEN 1 ELSE 0 END) as VarianceCount,
+             COALESCE(SUM(l.Difference), 0) as NetAdjustment
+      FROM instocktake h
+      LEFT JOIN instocktakeline l ON l.StockTakeId = h.StockTakeId
+      WHERE h.StoreId = ?
+      GROUP BY h.StockTakeId, h.StockTakeNo, h.CreatedDt, h.CreatedBy
+      ORDER BY h.CreatedDt DESC
+      LIMIT 100
+    `, [storeId]);
+  },
+
+  getAnalytics: async (storeId: number) => {
+    const d = await getDb();
+    const summary = await d.getFirstAsync<any>(`
+      SELECT COUNT(*) as invoiceCount,
+             COALESCE(SUM(SubTotal + VatTotal), 0) as revenue,
+             COALESCE(SUM(VatTotal), 0) as vat,
+             COALESCE(SUM(AmtPaid), 0) as paid
+      FROM ininvlist WHERE StoreId = ?
+    `, [storeId]);
+    const popularItems = await d.getAllAsync<any>(`
+      SELECT s.ItemId, s.StockId, s.ItemDesc,
+             COALESCE(SUM(s.Qty),0) as units,
+             COALESCE(SUM(s.Amount),0) as sales
+      FROM ininvstock s
+      JOIN ininvlist h ON h.SerialNo = s.TransSerialNo
+      WHERE h.StoreId = ?
+      GROUP BY s.ItemId, s.StockId, s.ItemDesc
+      ORDER BY units DESC, sales DESC
+      LIMIT 10
+    `, [storeId]);
+    const topRevenue = await d.getAllAsync<any>(`
+      SELECT s.ItemId, s.StockId, s.ItemDesc,
+             COALESCE(SUM(s.Amount),0) as sales,
+             COALESCE(SUM(s.Qty),0) as units
+      FROM ininvstock s
+      JOIN ininvlist h ON h.SerialNo = s.TransSerialNo
+      WHERE h.StoreId = ?
+      GROUP BY s.ItemId, s.StockId, s.ItemDesc
+      ORDER BY sales DESC
+      LIMIT 10
+    `, [storeId]);
+    const paymentMethods = await d.getAllAsync<any>(`
+      SELECT COALESCE(PMRef, 'Unknown') as method, COUNT(*) as count, COALESCE(SUM(AmtPaid),0) as amount
+      FROM ininvlist WHERE StoreId = ?
+      GROUP BY PMRef ORDER BY amount DESC
+    `, [storeId]);
+    const customerSales = await d.getAllAsync<any>(`
+      SELECT COALESCE(NULLIF(Company,''),'Walk-In Cash Customer') as customer,
+             COUNT(*) as invoices, COALESCE(SUM(SubTotal + VatTotal),0) as sales
+      FROM ininvlist WHERE StoreId = ?
+      GROUP BY Company ORDER BY sales DESC LIMIT 10
+    `, [storeId]);
+    const lowStock = await d.getAllAsync<any>(`
+      SELECT i.ItemId, i.ItemDesc, s.StockId, COALESCE(q.QtyOnHand,0) as qty
+      FROM initem i JOIN instock s ON s.ItemId=i.ItemId AND s.IsActive=1
+      LEFT JOIN inqty q ON q.ItemId=i.ItemId AND q.StockId=s.StockId AND q.StoreId=?
+      WHERE COALESCE(q.QtyOnHand,0) <= 5
+      ORDER BY qty ASC, i.ItemDesc LIMIT 10
+    `, [storeId]);
+    return { summary, popularItems, topRevenue, paymentMethods, customerSales, lowStock };
   },
 
   createProduct: async (data: {

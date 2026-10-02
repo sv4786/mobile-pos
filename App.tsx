@@ -14,7 +14,9 @@ import QuotesScreen from './src/screens/QuotesScreen';
 import InvoicesScreen from './src/screens/InvoicesScreen';
 import ProductsScreen from './src/screens/ProductsScreen';
 import CustomersScreen from './src/screens/CustomersScreen';
+import CustomerDetailScreen from './src/screens/CustomerDetailScreen';
 import StocktakeScreen from './src/screens/StocktakeScreen';
+import AnalyticsScreen from './src/screens/AnalyticsScreen';
 import PromotionsScreen from './src/screens/PromotionsScreen';
 import StoresScreen from './src/screens/StoresScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
@@ -34,6 +36,7 @@ type TabKey =
   | 'stocktake'
   | 'stores'
   | 'settings'
+  | 'analytics'
   | 'more';
 
 const DRAWER_TABS: { key: TabKey; label: string; icon: string }[] = [
@@ -46,6 +49,7 @@ const DRAWER_TABS: { key: TabKey; label: string; icon: string }[] = [
   { key: 'promotions',  label: 'Promotions',    icon: 'PRO' },
   { key: 'stores',      label: 'Stores',        icon: 'STR' },
   { key: 'settings',    label: 'Settings',      icon: 'SET' },
+  { key: 'analytics',   label: 'Analytics',     icon: 'ANL' },
 ];
 
 function AppContent() {
@@ -70,6 +74,8 @@ function AppContent() {
   const [documentDetail, setDocumentDetail] = useState<{ type: 'INVOICE' | 'QUOTE'; number: string } | null>(null);
   const [productSearch, setProductSearch] = useState('');
   const [customerSearch, setCustomerSearch] = useState('');
+  const [customerDetail, setCustomerDetail] = useState<number | null>(null);
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [loading, setLoading] = useState(true);
   const bannerAnim = useRef(new Animated.Value(0)).current;
   const scannerLock = useRef(false);
@@ -126,6 +132,7 @@ function AppContent() {
     setActiveTab(tab);
     setDrawerOpen(false);
     setDocumentDetail(null);
+    if (tab !== 'customers') setCustomerDetail(null);
 
     if (tab === 'quotes') {
       setQuotesList(await posDb.getQuotes());
@@ -629,20 +636,45 @@ function AppContent() {
         )}
 
         {activeTab === 'customers' && (
-          <CustomersScreen
-            customers={customers}
-            search={customerSearch}
-            onSearch={setCustomerSearch}
-            selected={selectedCustomer}
-            onSelect={(c: Customer) => {
-              setSelectedCustomer(c);
-              handleTabChange('pos');
-            }}
-          />
+          customerDetail !== null ? (
+            <CustomerDetailScreen
+              accId={customerDetail}
+              onBack={() => setCustomerDetail(null)}
+              onEdit={(customer) => {
+                setCustomerDetail(null);
+                setEditingCustomer(customer);
+              }}
+            />
+          ) : (
+            <CustomersScreen
+              customers={customers}
+              search={customerSearch}
+              onSearch={setCustomerSearch}
+              selected={selectedCustomer}
+              onSelect={(c: Customer) => {
+                setSelectedCustomer(c);
+                handleTabChange('pos');
+              }}
+              onView={(c: Customer) => setCustomerDetail(c.AccId)}
+              editingCustomer={editingCustomer}
+              onEditHandled={() => setEditingCustomer(null)}
+              onChanged={async () => {
+                setCustomers(await posDb.getCustomers(customerSearch));
+              }}
+            />
+          )
         )}
 
         {activeTab === 'stocktake' && (
-          <StocktakeScreen scans={stockScans} />
+          <StocktakeScreen
+            scans={stockScans}
+            storeId={currentStore?.StoreId ?? 1}
+            onComplete={() => setStockScans([])}
+          />
+        )}
+
+        {activeTab === 'analytics' && (
+          <AnalyticsScreen storeId={currentStore?.StoreId ?? 1} />
         )}
 
         {activeTab === 'promotions' && (
