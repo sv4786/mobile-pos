@@ -2,7 +2,7 @@ import { ScrollView, Text, View } from 'react-native';
 import { Promotion } from '../types';
 import { Badge, EmptyState, SectionHeader, bs } from './shared';
 
-function PromotionsScreen({ promos }: { promos: Promotion[] }) {
+export default function PromotionsScreen({ promos }: { promos: Promotion[] }) {
   return (
     <ScrollView style={bs.screen} contentContainerStyle={{ paddingBottom: 24 }}>
       <SectionHeader title="Active Promotions" />
