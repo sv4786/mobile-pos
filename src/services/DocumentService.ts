@@ -163,6 +163,7 @@ type AnalyticsPdfData = {
   storeCode?: string;
   date: string;
   summary: { invoiceCount: number; revenue: number; vat: number; paid: number };
+  salesTrend: Array<{ day: string; invoices: number; revenue: number }>;
   popularItems: Array<{ ItemDesc: string; units: number; sales: number }>;
   topRevenue: Array<{ ItemDesc: string; units: number; sales: number }>;
   paymentMethods: Array<{ method: string; count: number; amount: number }>;
@@ -200,6 +201,11 @@ export async function generateAnalyticsPdf(data: AnalyticsPdfData): Promise<stri
         <div class="metric">VAT collected<strong>${money(data.summary.vat)}</strong></div>
         <div class="metric">Amount paid<strong>${money(data.summary.paid)}</strong></div>
       </div>
+
+      <h2>Sales Trend</h2>
+      <table><thead><tr><th>Date</th><th class="right">Invoices</th><th class="right">Revenue</th></tr></thead><tbody>
+        ${rows(data.salesTrend, x => `<td>${esc(x.day)}</td><td class="right">${Number(x.invoices || 0)}</td><td class="right">${money(x.revenue)}</td>`)}
+      </tbody></table>
 
       <h2>Popular Items</h2>
       <table><thead><tr><th>Item</th><th class="right">Units</th><th class="right">Sales</th></tr></thead><tbody>
