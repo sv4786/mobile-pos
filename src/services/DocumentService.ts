@@ -1,6 +1,6 @@
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import { File, Paths } from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 
 type DocumentItem = {
   ItemDesc: string;
@@ -118,23 +118,38 @@ export async function generateDocumentPdf(
     </html>
   `;
 
-  const result = await Print.printToFileAsync({ html, base64: false });
-  if (!result.uri) throw new Error('PDF generation did not return a file.');
+  const result = await Print.printToFileAsync({
+    html,
+    base64: true,
+  });
+
+  if (!result.base64) {
+    throw new Error(
+      result.uri
+        ? 'PDF was generated but Android did not return readable PDF data.'
+        : 'PDF generation did not return any PDF data.'
+    );
+  }
 
   const safeName = data.number.replace(/[^a-zA-Z0-9_-]/g, '_');
-  const source = new File(result.uri);
-  if (!source.exists) throw new Error('Generated PDF file is not readable.');
+  const targetUri = `${FileSystem.documentDirectory}${safeName}.pdf`;
 
-  const target = new File(Paths.document, `${safeName}.pdf`);
-  if (target.exists) target.delete();
-  await source.copy(target);
+  await FileSystem.writeAsStringAsync(targetUri, result.base64, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
 
-  return target.uri;
+  const savedInfo = await FileSystem.getInfoAsync(targetUri);
+  if (!savedInfo.exists) {
+    throw new Error('PDF was generated but could not be saved to local storage.');
+  }
+
+  return targetUri;
 }
 
 export async function shareDocumentPdf(uri: string) {
   const available = await Sharing.isAvailableAsync();
   if (!available) throw new Error('Sharing is not available on this device.');
+
   await Sharing.shareAsync(uri, {
     mimeType: 'application/pdf',
     dialogTitle: 'Share PDF',
