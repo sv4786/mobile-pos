@@ -445,8 +445,8 @@ export const posDb = {
         [code, data.itemId, data.stockId]);
       await d.runAsync('UPDATE inprice SET LastCost = ?, AvgCost = ?, POSPrice1 = ?, SellPrice1 = ? WHERE ItemId = ? AND StockId = ?',
         [cost, cost, data.price, data.price, data.itemId, data.stockId]);
-      await d.runAsync('INSERT INTO inqty (ItemId, StockId, StoreId, QtyOnHand) VALUES (?, ?, ?, ?)
-        ON CONFLICT(ItemId, StockId, StoreId) DO UPDATE SET QtyOnHand = excluded.QtyOnHand',
+      await d.runAsync(`INSERT INTO inqty (ItemId, StockId, StoreId, QtyOnHand) VALUES (?, ?, ?, ?)
+        ON CONFLICT(ItemId, StockId, StoreId) DO UPDATE SET QtyOnHand = excluded.QtyOnHand`,
         [data.itemId, data.stockId, data.storeId, quantity]);
       await d.runAsync('DELETE FROM instockbarcode WHERE ItemId = ? AND StockId = ?', [data.itemId, data.stockId]);
       if (barcode) await d.runAsync('INSERT INTO instockbarcode (ItemId, StockId, BarcodeId, Barcode, IsActive) VALUES (?, ?, ?, ?, 1)',
@@ -474,8 +474,8 @@ export const posDb = {
     const current = row?.QtyOnHand || 0;
     const next = current + delta;
     if (next < 0) throw new Error('Stock cannot go below zero.');
-    await d.runAsync('INSERT INTO inqty (ItemId, StockId, StoreId, QtyOnHand) VALUES (?, ?, ?, ?)
-      ON CONFLICT(ItemId, StockId, StoreId) DO UPDATE SET QtyOnHand = excluded.QtyOnHand',
+    await d.runAsync(`INSERT INTO inqty (ItemId, StockId, StoreId, QtyOnHand) VALUES (?, ?, ?, ?)
+      ON CONFLICT(ItemId, StockId, StoreId) DO UPDATE SET QtyOnHand = excluded.QtyOnHand`,
       [itemId, stockId, storeId, next]);
     return next;
   },
