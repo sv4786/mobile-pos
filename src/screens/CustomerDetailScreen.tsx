@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Modal, ScrollView, Text, TextInput, TouchableOpacity, View, StyleSheet } from 'react-native';
 import { File } from 'expo-file-system';
 import * as IntentLauncher from 'expo-intent-launcher';
 import { CustomerDetails } from '../types';
@@ -253,8 +253,8 @@ export default function CustomerDetailScreen({
       </ScrollView>
 
       <Modal visible={paymentOpen} animationType="slide" transparent onRequestClose={() => setPaymentOpen(false)}>
-        <View style={bs.modalOverlay}>
-          <View style={bs.modalCard}>
+        <View style={accountStyles.modalOverlay}>
+          <View style={accountStyles.modalCard}>
             <Text style={bs.modalTitle}>{selectedInvoice ? 'Pay Invoice' : 'Account Payment'}</Text>
             {selectedInvoice && <Text style={bs.listSub}>{selectedInvoice.INVNo} outstanding R {Number(selectedInvoice.Outstanding).toFixed(2)}</Text>}
             {!selectedInvoice && <Text style={bs.listSub}>Apply payment to the customer account.</Text>}
@@ -269,8 +269,8 @@ export default function CustomerDetailScreen({
       </Modal>
 
       <Modal visible={statementOpen} animationType="slide" transparent onRequestClose={() => setStatementOpen(false)}>
-        <View style={bs.modalOverlay}>
-          <View style={bs.modalCard}>
+        <View style={accountStyles.modalOverlay}>
+          <View style={accountStyles.modalCard}>
             <Text style={bs.modalTitle}>Customer Statement</Text>
             <Text style={bs.listSub}>Optional dates, format YYYY-MM-DD. Leave blank for all activity.</Text>
             <Text style={bs.formLabel}>From Date</Text>
@@ -285,8 +285,8 @@ export default function CustomerDetailScreen({
 
       {statementUri && (
         <Modal visible={!!statementUri} animationType="slide" transparent onRequestClose={() => setStatementUri(null)}>
-          <View style={bs.modalOverlay}>
-            <View style={bs.modalCard}>
+          <View style={accountStyles.modalOverlay}>
+            <View style={accountStyles.modalCard}>
               <Text style={bs.modalTitle}>Statement PDF Ready</Text>
               <TouchableOpacity style={bs.primaryBtn} onPress={() => openPdf(statementUri!)}><Text style={bs.primaryBtnText}>Open PDF</Text></TouchableOpacity>
               <TouchableOpacity style={bs.ghostBtn} onPress={async () => { try { await shareDocumentPdf(statementUri!); } catch (e:any) { Alert.alert('Share PDF', e.message); } }}><Text style={bs.ghostBtnText}>Share PDF</Text></TouchableOpacity>
@@ -298,3 +298,9 @@ export default function CustomerDetailScreen({
     </>
   );
 }
+
+
+const accountStyles = StyleSheet.create({
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.72)', justifyContent: 'flex-end' },
+  modalCard: { backgroundColor: '#111827', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, borderWidth: 1, borderColor: '#1f2937' },
+});
