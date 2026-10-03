@@ -64,6 +64,7 @@ function AppContent() {
   const [currentStore, setCurrentStore] = useState<Store | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [customerAccount, setCustomerAccount] = useState<{ balance: number; availableCredit: number } | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [barcodeInput, setBarcodeInput] = useState('');
   const [scanMsg, setScanMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
@@ -86,6 +87,16 @@ function AppContent() {
   useEffect(() => {
     initApp();
   }, []);
+
+  useEffect(() => {
+    if (selectedCustomer && selectedCustomer.AccId !== 1) {
+      posDb.getCustomerAccount(selectedCustomer.AccId)
+        .then(account => setCustomerAccount({ balance: account.balance, availableCredit: account.availableCredit }))
+        .catch(() => setCustomerAccount(null));
+    } else {
+      setCustomerAccount(null);
+    }
+  }, [selectedCustomer]);
 
   useEffect(() => {
     if (currentStore) {
@@ -457,6 +468,10 @@ function AppContent() {
 
       Alert.alert('Sale Complete!', 'Invoice ' + res.inv_no + ' saved with PDF.');
       setCart([]);
+      if (selectedCustomer && selectedCustomer.AccId !== 1) {
+        const account = await posDb.getCustomerAccount(selectedCustomer.AccId);
+        setCustomerAccount({ balance: account.balance, availableCredit: account.availableCredit });
+      }
     } catch (e: any) {
       Alert.alert('Error', e.message);
     }
@@ -698,6 +713,7 @@ function AppContent() {
         {activeTab === 'pos' && (
           <PosScreen
             cart={cart}
+            creditAvailable={customerAccount?.availableCredit ?? 0}
             selectedCustomer={selectedCustomer}
             subExcl={subExcl}
             subVat={subVat}
