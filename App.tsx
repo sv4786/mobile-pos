@@ -284,7 +284,7 @@ function AppContent() {
         'ok',
         product.ItemDesc +
           '  R' +
-          up.toFixed(2) +
+          pr.unit_price.toFixed(2) +
           '  [' +
           pr.price_source +
           ']'
@@ -481,6 +481,9 @@ function AppContent() {
           unit_incl: c.unit_incl,
           vat_amount: c.vat_amount,
           amount: c.amount,
+          disc_perc: c.one_off_discount_type === 'PERCENT'
+            ? (c.one_off_discount_value || 0)
+            : (c.unit_price > 0 ? ((c.one_off_discount_amount || 0) / c.unit_price) * 100 : 0),
           promotion_id: c.promotion_id,
         })),
       });
