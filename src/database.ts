@@ -264,6 +264,20 @@ async function initDatabaseSchema(d: SQLite.SQLiteDatabase) {
       CreatedDt TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS araccounttransaction (
+      TransactionId INTEGER PRIMARY KEY,
+      AccId INTEGER NOT NULL,
+      TransactionType TEXT NOT NULL,
+      RefNo TEXT,
+      InvoiceNo TEXT,
+      Debit REAL DEFAULT 0,
+      Credit REAL DEFAULT 0,
+      Balance REAL DEFAULT 0,
+      Notes TEXT,
+      CreatedBy TEXT,
+      CreatedDt TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS instocktakeline (
       StockTakeId INTEGER,
       ItemId INTEGER,
@@ -440,6 +454,110 @@ export const posDb = {
     }
     await d.runAsync('DELETE FROM arpmatrix WHERE AccId = ?', [accId]);
     await d.runAsync('DELETE FROM aracc WHERE AccId = ?', [accId]);
+  },
+
+
+  getCustomerAccount: async (accId: number) => {
+    const d = await getDb();
+    const customer = await d.getFirstAsync<Customer>(
+      'SELECT AccId, AccCode, Company, Contact, Tel, Cell, Email, PriceListId, COALESCE(AutoDisc,0) AutoDisc, COALESCE(AllowPriceMatrix,0) AllowPriceMatrix, COALESCE(CrLimit,0) CrLimit FROM aracc WHERE AccId = ?',
+      [accId]
+    );
+    if (!customer) throw new Error('Customer not found.');
+    const row = await d.getFirstAsync<{ balance: number }>(
+      'SELECT COALESCE(SUM(Debit - Credit),0) AS balance FROM araccounttransaction WHERE AccId = ?',
+      [accId]
+    );
+    const balance = Math.round(Number(row?.balance || 0) * 100) / 100;
+    return {
+      customer,
+      balance,
+      availableCredit: Math.round(Math.max(0, Number(customer.CrLimit || 0) - balance) * 100) / 100,
+    };
+  },
+
+  getCustomerAccountTransactions: async (accId: number) => {
+    const d = await getDb();
+    return await d.getAllAsync<any>(
+      'SELECT TransactionId, AccId, TransactionType, RefNo, InvoiceNo, Debit, Credit, Balance, Notes, CreatedBy, CreatedDt FROM araccounttransaction WHERE AccId = ? ORDER BY CreatedDt DESC, TransactionId DESC',
+      [accId]
+    );
+  },
+
+  getOutstandingInvoices: async (accId: number) => {
+    const d = await getDb();
+    return await d.getAllAsync<any>(`
+      SELECT INVNo, CreatedDt, Company, SubTotal, VatTotal, AmtPaid,
+             ROUND((SubTotal + VatTotal) - COALESCE(AmtPaid,0), 2) AS Outstanding,
+             PMRef
+      FROM ininvlist
+      WHERE AccId = ?
+        AND ROUND((SubTotal + VatTotal) - COALESCE(AmtPaid,0), 2) > 0
+      ORDER BY CreatedDt ASC, INVNo ASC
+    `, [accId]);
+  },
+
+  recordAccountPayment: async (data: { accId: number; invoiceNo?: string; amount: number; notes?: string }) => {
+    const d = await getDb();
+    if (data.accId === 1) throw new Error('The walk-in cash customer cannot use credit accounts.');
+    const amount = Math.round(Number(data.amount) * 100) / 100;
+    if (!Number.isFinite(amount) || amount <= 0) throw new Error('Payment amount must be greater than zero.');
+    const invoice = data.invoiceNo
+      ? await d.getFirstAsync<any>('SELECT INVNo, SubTotal, VatTotal, AmtPaid FROM ininvlist WHERE INVNo = ? AND AccId = ?', [data.invoiceNo, data.accId])
+      : null;
+    if (data.invoiceNo && !invoice) throw new Error('Invoice not found for this customer.');
+    if (invoice) {
+      const outstanding = Math.round((Number(invoice.SubTotal || 0) + Number(invoice.VatTotal || 0) - Number(invoice.AmtPaid || 0)) * 100) / 100;
+      if (amount > outstanding) throw new Error('Payment cannot exceed the invoice outstanding amount.');
+    }
+    const row = await d.getFirstAsync<{ balance: number }>('SELECT COALESCE(SUM(Debit - Credit),0) AS balance FROM araccounttransaction WHERE AccId = ?', [data.accId]);
+    const before = Number(row?.balance || 0);
+    const after = Math.round((before - amount) * 100) / 100;
+    const idRow = await d.getFirstAsync<{ nextId: number }>('SELECT COALESCE(MAX(TransactionId),0)+1 AS nextId FROM araccounttransaction');
+    const now = new Date().toISOString().replace('T',' ').slice(0,19);
+    await d.withTransactionAsync(async () => {
+      if (invoice) {
+        await d.runAsync('UPDATE ininvlist SET AmtPaid = COALESCE(AmtPaid,0) + ? WHERE INVNo = ? AND AccId = ?', [amount, invoice.INVNo, data.accId]);
+      }
+      await d.runAsync(
+        `INSERT INTO araccounttransaction
+          (TransactionId, AccId, TransactionType, RefNo, InvoiceNo, Debit, Credit, Balance, Notes, CreatedBy, CreatedDt)
+         VALUES (?, ?, 'PAYMENT', ?, ?, 0, ?, ?, ?, 'MOBILE_POS', ?)`,
+        [idRow?.nextId || 1, data.accId, data.invoiceNo || `PAY-${idRow?.nextId || 1}`, data.invoiceNo || null, amount, after, data.notes || 'Account payment', now]
+      );
+    });
+    return { transactionId: idRow?.nextId || 1, balance: after };
+  },
+
+  getCustomerStatementData: async (accId: number, fromDate?: string, toDate?: string) => {
+    const d = await getDb();
+    const customer = await d.getFirstAsync<Customer>(
+      'SELECT AccId, AccCode, Company, Contact, Tel, Cell, Email, PriceListId, COALESCE(AutoDisc,0) AutoDisc, COALESCE(AllowPriceMatrix,0) AllowPriceMatrix, COALESCE(CrLimit,0) CrLimit FROM aracc WHERE AccId = ?',
+      [accId]
+    );
+    if (!customer) throw new Error('Customer not found.');
+    const filters = ['AccId = ?'];
+    const params: any[] = [accId];
+    if (fromDate) { filters.push('CreatedDt >= ?'); params.push(fromDate + ' 00:00:00'); }
+    if (toDate) { filters.push('CreatedDt <= ?'); params.push(toDate + ' 23:59:59'); }
+    const transactions = await d.getAllAsync<any>(`
+      SELECT TransactionId, TransactionType, RefNo, InvoiceNo, Debit, Credit, Balance, Notes, CreatedDt
+      FROM araccounttransaction
+      WHERE ${filters.join(' AND ')}
+      ORDER BY CreatedDt ASC, TransactionId ASC
+    `, params);
+    const totalDebit = transactions.reduce((s, x) => s + Number(x.Debit || 0), 0);
+    const totalCredit = transactions.reduce((s, x) => s + Number(x.Credit || 0), 0);
+    const balanceRow = await d.getFirstAsync<{ balance: number }>('SELECT COALESCE(SUM(Debit - Credit),0) AS balance FROM araccounttransaction WHERE AccId = ?', [accId]);
+    return {
+      customer,
+      transactions,
+      totals: {
+        debit: Math.round(totalDebit * 100) / 100,
+        credit: Math.round(totalCredit * 100) / 100,
+        balance: Math.round(Number(balanceRow?.balance || 0) * 100) / 100,
+      },
+    };
   },
 
   getCustomerDetails: async (accId: number) => {
@@ -1097,6 +1215,17 @@ export const posDb = {
         }
       }
 
+      if (String(data.pm_ref || '').toUpperCase() === 'CREDIT') {
+        if (Number(data.acc_id || 1) === 1) throw new Error('The walk-in cash customer cannot buy on credit.');
+        const row = await d.getFirstAsync<{ balance: number }>('SELECT COALESCE(SUM(Debit - Credit),0) AS balance FROM araccounttransaction WHERE AccId = ?', [data.acc_id]);
+        const currentBalance = Number(row?.balance || 0);
+        const customer = await d.getFirstAsync<{ CrLimit: number }>('SELECT COALESCE(CrLimit,0) AS CrLimit FROM aracc WHERE AccId = ?', [data.acc_id]);
+        if (!customer) throw new Error('Customer account not found.');
+        const total = Number(data.sub_total || 0) + Number(data.vat_total || 0);
+        if (Number(customer.CrLimit || 0) <= 0) throw new Error('This customer has no credit limit configured.');
+        if (currentBalance + total > Number(customer.CrLimit)) throw new Error('Credit limit exceeded. Available credit: R ' + Math.max(0, Number(customer.CrLimit) - currentBalance).toFixed(2) + '.');
+      }
+
       await d.runAsync(`
         INSERT INTO ininvlist (
           AccId, StoreId, Company, DAddress, INVNo, OrderNo, RepId, SubTotal, VatTotal, DiscPerc, Discount,
@@ -1133,6 +1262,18 @@ export const posDb = {
         trNo++;
       }
     });
+
+    if (String(data.pm_ref || '').toUpperCase() === 'CREDIT') {
+      const row = await d.getFirstAsync<{ balance: number }>('SELECT COALESCE(SUM(Debit - Credit),0) AS balance FROM araccounttransaction WHERE AccId = ?', [data.acc_id]);
+      const idRow = await d.getFirstAsync<{ nextId: number }>('SELECT COALESCE(MAX(TransactionId),0)+1 AS nextId FROM araccounttransaction');
+      const balance = Number(row?.balance || 0);
+      const total = Number(data.sub_total || 0) + Number(data.vat_total || 0);
+      await d.runAsync(`INSERT INTO araccounttransaction
+        (TransactionId, AccId, TransactionType, RefNo, InvoiceNo, Debit, Credit, Balance, Notes, CreatedBy, CreatedDt)
+        VALUES (?, ?, 'INVOICE', ?, ?, ?, 0, ?, 'Credit sale', 'MOBILE_POS', ?)`,
+        [idRow?.nextId || 1, data.acc_id, invNo, invNo, total, balance, new Date().toISOString().replace('T',' ').slice(0,19)]
+      );
+    }
 
     return { inv_no: invNo, serial_no: serialNo, status: 'COMPLETED' };
   },
