@@ -119,6 +119,18 @@ export interface StockTakeItem {
   timestamp: string;
 }
 
+export interface InventoryOverview {
+  ItemId: number; StockId: number; ItemCode: string; StockCode: string; ItemDesc: string;
+  QtyOnHand: number; LastCost: number; AvgCost: number; SellPrice: number;
+}
+
+export interface InventoryMovement {
+  MovementId: number; StoreId: number; ItemId: number; StockId: number; MovementType: string;
+  Quantity: number; BalanceBefore: number; BalanceAfter: number; ReferenceNo: string; Notes: string;
+  RelatedStoreId?: number; RelatedStoreCode?: string; RelatedStoreDesc?: string;
+  ItemCode: string; ItemDesc: string; StockCode: string; CreatedBy: string; CreatedDt: string;
+}
+
 export interface CustomerDetails {
   customer: Customer;
   invoices: Invoice[];
