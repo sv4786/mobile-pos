@@ -120,7 +120,7 @@ function AppContent() {
     try {
       const [prods, promos] = await Promise.all([
         posDb.searchProducts('', storeId, 50),
-        posDb.getPromotions(storeId),
+        posDb.getPromotions(storeId, true),
       ]);
 
       setProductsList(prods);
@@ -165,6 +165,36 @@ function AppContent() {
     ]).start(() => setScanMsg(null));
   };
 
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+
+  const calculateLine = (
+    baseUnitPrice: number,
+    qty: number,
+    discountType?: 'PERCENT' | 'FIXED',
+    discountValue: number = 0
+  ) => {
+    const safeBase = Math.max(0, Number(baseUnitPrice || 0));
+    const safeValue = Math.max(0, Number(discountValue || 0));
+    const discountPerUnit = discountType === 'PERCENT'
+      ? safeBase * Math.min(100, safeValue) / 100
+      : discountType === 'FIXED'
+        ? Math.min(safeBase, safeValue)
+        : 0;
+    const finalIncl = Math.max(0, safeBase - discountPerUnit);
+    const finalExcl = r2(finalIncl / 1.15);
+    const vat = r2(finalIncl - finalExcl);
+
+    return {
+      unit_excl: finalExcl,
+      unit_incl: r2(finalIncl),
+      vat_amount: vat,
+      amount: r2(finalIncl * qty),
+      one_off_discount_amount: r2(discountPerUnit),
+      one_off_discount_type: discountPerUnit > 0 ? discountType : undefined,
+      one_off_discount_value: discountPerUnit > 0 ? safeValue : 0,
+    };
+  };
+
   const handleScan = useCallback(async (raw?: string) => {
     const code = (raw || barcodeInput).trim();
 
@@ -196,16 +226,26 @@ function AppContent() {
         return;
       }
 
+      const existing = cart.find(
+        ci =>
+          ci.product.ItemId === product.ItemId &&
+          ci.product.StockId === product.StockId
+      );
+      const targetQty = existing ? existing.qty + 1 : 1;
       const pr = await posDb.checkPrice(
         product.ItemId,
         product.StockId,
         selectedCustomer?.AccId,
-        storeId
+        storeId,
+        targetQty
       );
 
-      const up = pr.unit_price;
-      const excl = r2(up / 1.15);
-      const vat = r2(up - excl);
+      const line = calculateLine(
+        pr.unit_price,
+        targetQty,
+        existing?.one_off_discount_type,
+        existing?.one_off_discount_value || 0
+      );
 
       setCart(prev => {
         const idx = prev.findIndex(
@@ -216,33 +256,28 @@ function AppContent() {
 
         if (idx >= 0) {
           const updated = [...prev];
-          const newQty = updated[idx].qty + 1;
-
           updated[idx] = {
             ...updated[idx],
-            qty: newQty,
-            amount: r2(newQty * up),
-          };
-
-          return updated;
-        }
-
-        return [
-          {
-            product,
-            qty: 1,
-            unit_price: up,
-            unit_excl: excl,
-            unit_incl: up,
-            vat_amount: vat,
-            disc_perc: 0,
-            amount: up,
+            qty: targetQty,
+            unit_price: pr.unit_price,
             price_source: pr.price_source,
             promotion_id: pr.promotion_id,
             promotion_desc: pr.promotion_desc,
-          },
-          ...prev,
-        ];
+            ...line,
+          };
+          return updated;
+        }
+
+        return [{
+          product,
+          qty: 1,
+          unit_price: pr.unit_price,
+          disc_perc: 0,
+          price_source: pr.price_source,
+          promotion_id: pr.promotion_id,
+          promotion_desc: pr.promotion_desc,
+          ...calculateLine(pr.unit_price, 1),
+        }, ...prev];
       });
 
       flashBanner(
@@ -262,25 +297,75 @@ function AppContent() {
         err.message || 'Code not found: ' + code
       );
     }
-  }, [barcodeInput, activeTab, currentStore, selectedCustomer]);
+  }, [barcodeInput, activeTab, currentStore, selectedCustomer, cart]);
 
-  const r2 = (v: number) => Math.round(v * 100) / 100;
+  const updateQty = async (idx: number, delta: number) => {
+    const current = cart[idx];
+    if (!current) return;
+    const newQty = current.qty + delta;
 
-  const updateQty = (idx: number, delta: number) => {
+    if (newQty <= 0) {
+      setCart(prev => prev.filter((_, i) => i !== idx));
+      return;
+    }
+
+    try {
+      const storeId = currentStore?.StoreId ?? 1;
+      const pr = await posDb.checkPrice(
+        current.product.ItemId,
+        current.product.StockId,
+        selectedCustomer?.AccId,
+        storeId,
+        newQty
+      );
+      const line = calculateLine(
+        pr.unit_price,
+        newQty,
+        current.one_off_discount_type,
+        current.one_off_discount_value || 0
+      );
+
+      setCart(prev => {
+        if (!prev[idx]) return prev;
+        const updated = [...prev];
+        updated[idx] = {
+          ...updated[idx],
+          qty: newQty,
+          unit_price: pr.unit_price,
+          price_source: pr.price_source,
+          promotion_id: pr.promotion_id,
+          promotion_desc: pr.promotion_desc,
+          ...line,
+        };
+        return updated;
+      });
+    } catch (e: any) {
+      flashBanner('err', e.message || 'Could not update item price.');
+    }
+  };
+
+  const applyOneOffDiscount = (
+    idx: number,
+    type?: 'PERCENT' | 'FIXED',
+    value: number = 0
+  ) => {
     setCart(prev => {
+      const current = prev[idx];
+      if (!current) return prev;
+
+      const line = calculateLine(
+        current.unit_price,
+        current.qty,
+        type,
+        value
+      );
       const updated = [...prev];
-      const newQty = updated[idx].qty + delta;
-
-      if (newQty <= 0) {
-        return updated.filter((_, i) => i !== idx);
-      }
-
       updated[idx] = {
-        ...updated[idx],
-        qty: newQty,
-        amount: r2(newQty * updated[idx].unit_price),
+        ...current,
+        ...line,
+        one_off_discount_type: line.one_off_discount_type,
+        one_off_discount_value: line.one_off_discount_value || 0,
       };
-
       return updated;
     });
   };
@@ -301,6 +386,10 @@ function AppContent() {
     cart.reduce((a, i) => a + i.amount, 0)
   );
 
+  const oneOffDiscountTotal = r2(
+    cart.reduce((a, i) => a + (i.one_off_discount_amount || 0) * i.qty, 0)
+  );
+
   const handleCreateInvoice = async (payment: { method: string; amountReceived: number }) => {
     if (cart.length === 0) return;
 
@@ -313,6 +402,7 @@ function AppContent() {
           'Walk-In Cash Customer',
         sub_total: subExcl,
         vat_total: subVat,
+        discount: oneOffDiscountTotal,
         amt_paid: payment.amountReceived,
         pm_ref: payment.method,
         items: cart.map(c => ({
@@ -324,6 +414,9 @@ function AppContent() {
           unit_incl: c.unit_incl,
           vat_amount: c.vat_amount,
           amount: c.amount,
+          disc_perc: c.one_off_discount_type === 'PERCENT'
+            ? (c.one_off_discount_value || 0)
+            : (c.unit_price > 0 ? ((c.one_off_discount_amount || 0) / c.unit_price) * 100 : 0),
           promotion_id: c.promotion_id,
         })),
       });
@@ -349,6 +442,7 @@ function AppContent() {
             UnitIncl: c.unit_incl,
             VatAmount: c.vat_amount,
             Amount: c.amount,
+            Discount: r2((c.one_off_discount_amount || 0) * c.qty),
           })),
         });
         await posDb.setInvoicePdfPath(res.inv_no, pdfPath);
@@ -377,6 +471,7 @@ function AppContent() {
           'Walk-In Cash Customer',
         sub_total: subExcl,
         vat_total: subVat,
+        discount: oneOffDiscountTotal,
         items: cart.map(c => ({
           item_id: c.product.ItemId,
           stock_id: c.product.StockId,
@@ -409,6 +504,7 @@ function AppContent() {
             UnitIncl: c.unit_incl,
             VatAmount: c.vat_amount,
             Amount: c.amount,
+            Discount: r2((c.one_off_discount_amount || 0) * c.qty),
           })),
         });
         await posDb.setQuotePdfPath(res.quote_no, pdfPath);
@@ -607,6 +703,7 @@ function AppContent() {
             onChangeCustomer={() =>
               handleTabChange('customers')
             }
+            onApplyOneOffDiscount={applyOneOffDiscount}
           />
         )}
 
@@ -682,7 +779,12 @@ function AppContent() {
         )}
 
         {activeTab === 'promotions' && (
-          <PromotionsScreen promos={promotionsList} />
+          <PromotionsScreen
+            storeId={currentStore?.StoreId ?? 1}
+            products={productsList}
+            promos={promotionsList}
+            onChanged={() => loadStoreData(currentStore?.StoreId ?? 1)}
+          />
         )}
 
         {activeTab === 'stores' && (
