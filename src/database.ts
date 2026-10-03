@@ -248,6 +248,22 @@ async function initDatabaseSchema(d: SQLite.SQLiteDatabase) {
       FullName TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS instockmovement (
+      MovementId INTEGER PRIMARY KEY,
+      StoreId INTEGER,
+      ItemId INTEGER,
+      StockId INTEGER,
+      MovementType TEXT,
+      Quantity REAL,
+      BalanceBefore REAL,
+      BalanceAfter REAL,
+      ReferenceNo TEXT,
+      Notes TEXT,
+      RelatedStoreId INTEGER,
+      CreatedBy TEXT,
+      CreatedDt TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS instocktakeline (
       StockTakeId INTEGER,
       ItemId INTEGER,
