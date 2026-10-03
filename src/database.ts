@@ -456,6 +456,115 @@ export const posDb = {
     };
   },
 
+  getInventoryOverview: async (storeId: number, q: string = '') => {
+    const d = await getDb();
+    const like = `%${q.trim()}%`;
+    return await d.getAllAsync<any>(`
+      SELECT i.ItemId, i.ItemCode, i.ItemDesc, s.StockId, s.StockCode,
+             COALESCE(q.QtyOnHand, 0) AS QtyOnHand,
+             COALESCE(p.LastCost, 0) AS LastCost,
+             COALESCE(p.AvgCost, 0) AS AvgCost,
+             COALESCE(p.POSPrice1, p.SellPrice1, 0) AS SellPrice
+      FROM initem i
+      JOIN instock s ON s.ItemId = i.ItemId AND s.IsActive = 1
+      LEFT JOIN inqty q ON q.ItemId = i.ItemId AND q.StockId = s.StockId AND q.StoreId = ?
+      LEFT JOIN inprice p ON p.ItemId = i.ItemId AND p.StockId = s.StockId
+      WHERE i.ItemDesc LIKE ? OR i.ItemCode LIKE ? OR s.StockCode LIKE ?
+      ORDER BY i.ItemDesc
+    `, [storeId, like, like, like]);
+  },
+
+  getInventorySummary: async (storeId: number) => {
+    const d = await getDb();
+    const row = await d.getFirstAsync<any>(`
+      SELECT COUNT(*) AS itemCount,
+             COALESCE(SUM(CASE WHEN COALESCE(q.QtyOnHand,0) > 0 THEN 1 ELSE 0 END),0) AS inStock,
+             COALESCE(SUM(CASE WHEN COALESCE(q.QtyOnHand,0) <= 0 THEN 1 ELSE 0 END),0) AS outOfStock,
+             COALESCE(SUM(CASE WHEN COALESCE(q.QtyOnHand,0) > 0 AND COALESCE(q.QtyOnHand,0) <= 5 THEN 1 ELSE 0 END),0) AS lowStock,
+             COALESCE(SUM(COALESCE(q.QtyOnHand,0) * COALESCE(p.AvgCost, p.LastCost, 0)),0) AS stockValue
+      FROM initem i
+      JOIN instock s ON s.ItemId = i.ItemId AND s.IsActive = 1
+      LEFT JOIN inqty q ON q.ItemId = i.ItemId AND q.StockId = s.StockId AND q.StoreId = ?
+      LEFT JOIN inprice p ON p.ItemId = i.ItemId AND p.StockId = s.StockId
+    `, [storeId]);
+    return row || { itemCount: 0, inStock: 0, outOfStock: 0, lowStock: 0, stockValue: 0 };
+  },
+
+  getInventoryMovements: async (storeId: number, q: string = '') => {
+    const d = await getDb();
+    const like = `%${q.trim()}%`;
+    return await d.getAllAsync<any>(`
+      SELECT m.MovementId, m.StoreId, m.ItemId, m.StockId, m.MovementType,
+             m.Quantity, m.BalanceBefore, m.BalanceAfter, m.ReferenceNo, m.Notes,
+             m.RelatedStoreId, m.CreatedBy, m.CreatedDt,
+             i.ItemCode, i.ItemDesc, s.StockCode,
+             rs.StoreCode AS RelatedStoreCode, rs.StoreDesc AS RelatedStoreDesc
+      FROM instockmovement m
+      JOIN initem i ON i.ItemId = m.ItemId
+      JOIN instock s ON s.ItemId = m.ItemId AND s.StockId = m.StockId
+      LEFT JOIN store rs ON rs.StoreId = m.RelatedStoreId
+      WHERE m.StoreId = ?
+        AND (i.ItemDesc LIKE ? OR i.ItemCode LIKE ? OR s.StockCode LIKE ? OR m.MovementType LIKE ? OR COALESCE(m.ReferenceNo,'') LIKE ?)
+      ORDER BY m.CreatedDt DESC, m.MovementId DESC
+      LIMIT 200
+    `, [storeId, like, like, like, like, like]);
+  },
+
+  recordInventoryMovement: async (data: {
+    storeId: number; itemId: number; stockId: number;
+    movementType: 'RECEIVE' | 'ADJUST' | 'TRANSFER_OUT' | 'TRANSFER_IN';
+    quantity: number; notes?: string; referenceNo?: string; relatedStoreId?: number; createdBy?: string;
+  }) => {
+    const d = await getDb();
+    const quantity = Number(data.quantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) throw new Error('Enter a quantity greater than zero.');
+    if (data.movementType === 'TRANSFER_OUT' && (!data.relatedStoreId || data.relatedStoreId === data.storeId)) {
+      throw new Error('Select a different destination store for the transfer.');
+    }
+
+    const now = new Date().toISOString();
+    const idRow = await d.getFirstAsync<{ nextId: number }>('SELECT COALESCE(MAX(MovementId), 0) + 1 AS nextId FROM instockmovement');
+    const movementId = idRow?.nextId || 1;
+    const referenceNo = data.referenceNo?.trim() || `MOV-${String(movementId).padStart(6, '0')}`;
+
+    await d.withTransactionAsync(async () => {
+      const current = await d.getFirstAsync<{ QtyOnHand: number }>(
+        'SELECT COALESCE(QtyOnHand,0) AS QtyOnHand FROM inqty WHERE ItemId = ? AND StockId = ? AND StoreId = ?',
+        [data.itemId, data.stockId, data.storeId]
+      );
+      const before = Number(current?.QtyOnHand || 0);
+      const delta = data.movementType === 'RECEIVE' || data.movementType === 'TRANSFER_IN' ? quantity : -quantity;
+      const after = before + delta;
+      if (after < 0) throw new Error(`Insufficient stock. Available: ${before}, requested: ${quantity}.`);
+
+      await d.runAsync('INSERT OR IGNORE INTO inqty (ItemId, StockId, StoreId, QtyOnHand) VALUES (?, ?, ?, 0)', [data.itemId, data.stockId, data.storeId]);
+      const updated = await d.runAsync('UPDATE inqty SET QtyOnHand = ? WHERE ItemId = ? AND StockId = ? AND StoreId = ?', [after, data.itemId, data.stockId, data.storeId]);
+      if (updated.changes !== 1) throw new Error('Could not update inventory quantity.');
+
+      await d.runAsync(`
+        INSERT INTO instockmovement
+          (MovementId, StoreId, ItemId, StockId, MovementType, Quantity, BalanceBefore, BalanceAfter, ReferenceNo, Notes, RelatedStoreId, CreatedBy, CreatedDt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [movementId, data.storeId, data.itemId, data.stockId, data.movementType, quantity, before, after, referenceNo, data.notes?.trim() || '', data.relatedStoreId || null, data.createdBy || 'POS', now]);
+
+      if (data.movementType === 'TRANSFER_OUT') {
+        const otherStoreId = data.relatedStoreId!;
+        const dest = await d.getFirstAsync<{ QtyOnHand: number }>('SELECT COALESCE(QtyOnHand,0) AS QtyOnHand FROM inqty WHERE ItemId = ? AND StockId = ? AND StoreId = ?', [data.itemId, data.stockId, otherStoreId]);
+        const destBefore = Number(dest?.QtyOnHand || 0);
+        const destAfter = destBefore + quantity;
+        await d.runAsync('INSERT OR IGNORE INTO inqty (ItemId, StockId, StoreId, QtyOnHand) VALUES (?, ?, ?, 0)', [data.itemId, data.stockId, otherStoreId]);
+        await d.runAsync('UPDATE inqty SET QtyOnHand = ? WHERE ItemId = ? AND StockId = ? AND StoreId = ?', [destAfter, data.itemId, data.stockId, otherStoreId]);
+        const destIdRow = await d.getFirstAsync<{ nextId: number }>('SELECT COALESCE(MAX(MovementId), 0) + 1 AS nextId FROM instockmovement');
+        await d.runAsync(`
+          INSERT INTO instockmovement
+            (MovementId, StoreId, ItemId, StockId, MovementType, Quantity, BalanceBefore, BalanceAfter, ReferenceNo, Notes, RelatedStoreId, CreatedBy, CreatedDt)
+          VALUES (?, ?, ?, ?, 'TRANSFER_IN', ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [destIdRow?.nextId || movementId + 1, otherStoreId, data.itemId, data.stockId, quantity, destBefore, destAfter, referenceNo, data.notes?.trim() || `Transfer from store ${data.storeId}`, data.storeId, data.createdBy || 'POS', now]);
+      }
+    });
+    return { movementId, referenceNo };
+  },
+
   getStockTakeItems: async (storeId: number) => {
     const d = await getDb();
     return await d.getAllAsync<any>(`
