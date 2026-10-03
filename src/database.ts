@@ -492,6 +492,7 @@ export const posDb = {
              PMRef
       FROM ininvlist
       WHERE AccId = ?
+        AND UPPER(COALESCE(PMRef,'')) = 'CREDIT'
         AND ROUND((SubTotal + VatTotal) - COALESCE(AmtPaid,0), 2) > 0
       ORDER BY CreatedDt ASC, INVNo ASC
     `, [accId]);
@@ -1268,10 +1269,11 @@ export const posDb = {
       const idRow = await d.getFirstAsync<{ nextId: number }>('SELECT COALESCE(MAX(TransactionId),0)+1 AS nextId FROM araccounttransaction');
       const balance = Number(row?.balance || 0);
       const total = Number(data.sub_total || 0) + Number(data.vat_total || 0);
+      const newBalance = balance + total;
       await d.runAsync(`INSERT INTO araccounttransaction
         (TransactionId, AccId, TransactionType, RefNo, InvoiceNo, Debit, Credit, Balance, Notes, CreatedBy, CreatedDt)
         VALUES (?, ?, 'INVOICE', ?, ?, ?, 0, ?, 'Credit sale', 'MOBILE_POS', ?)`,
-        [idRow?.nextId || 1, data.acc_id, invNo, invNo, total, balance, new Date().toISOString().replace('T',' ').slice(0,19)]
+        [idRow?.nextId || 1, data.acc_id, invNo, invNo, total, newBalance, new Date().toISOString().replace('T',' ').slice(0,19)]
       );
     }
 
