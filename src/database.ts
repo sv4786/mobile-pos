@@ -132,6 +132,9 @@ async function initDatabaseSchema(d: SQLite.SQLiteDatabase) {
       StockId INTEGER,
       Price REAL,
       PromotionLimit REAL,
+      DiscountType TEXT DEFAULT 'PRICE',
+      DiscountValue REAL DEFAULT 0,
+      MinQty REAL DEFAULT 1,
       IsActive REAL
     );
 
@@ -271,6 +274,9 @@ async function initDatabaseSchema(d: SQLite.SQLiteDatabase) {
 
   await ensureColumn('inqulist', 'PdfPath');
   await ensureColumn('ininvlist', 'PdfPath');
+  await ensureColumn('inpromotionitem', 'DiscountType');
+  await ensureColumn('inpromotionitem', 'DiscountValue');
+  await ensureColumn('inpromotionitem', 'MinQty');
 }
 
 async function seedDatabase(d: SQLite.SQLiteDatabase) {
@@ -803,7 +809,7 @@ export const posDb = {
     `, [storeId, limit]);
   },
 
-  checkPrice: async (itemId: number, stockId: number, accId?: number, storeId?: number) => {
+  checkPrice: async (itemId: number, stockId: number, accId?: number, storeId: number = 1, qty: number = 1) => {
     const d = await getDb();
     let finalPrice = 0.0;
     let priceSource = "Standard POS Price";
@@ -835,18 +841,41 @@ export const posDb = {
     }
 
     if (priceSource === "Standard POS Price" && storeId) {
-      const promoRow = await d.getFirstAsync<{ Price: number; PromotionId: number; PromotionDesc: string }>(`
-        SELECT pi.Price, p.PromotionId, p.PromotionDesc
+      const today = new Date().toISOString().slice(0, 10);
+      const promoRow = await d.getFirstAsync<{
+        Price: number;
+        PromotionId: number;
+        PromotionDesc: string;
+        DiscountType: string;
+        DiscountValue: number;
+        MinQty: number;
+      }>(`
+        SELECT pi.Price, p.PromotionId, p.PromotionDesc,
+               COALESCE(pi.DiscountType, 'PRICE') as DiscountType,
+               COALESCE(pi.DiscountValue, pi.Price) as DiscountValue,
+               COALESCE(pi.MinQty, 1) as MinQty
         FROM inpromotionitem pi
         JOIN inpromotion p ON pi.PromotionId = p.PromotionId
         JOIN inpromotionstore ps ON p.PromotionId = ps.PromotionId
-        WHERE pi.ItemId = ? AND pi.StockId = ? 
-          AND ps.StoreId = ? 
+        WHERE pi.ItemId = ? AND pi.StockId = ?
+          AND ps.StoreId = ?
           AND pi.IsActive = 1 AND p.IsActive = 1 AND ps.IsActive = 1
+          AND (p.FromText IS NULL OR p.FromText = '' OR substr(p.FromText, 1, 10) <= ?)
+          AND (p.ToText IS NULL OR p.ToText = '' OR substr(p.ToText, 1, 10) >= ?)
+          AND COALESCE(pi.MinQty, 1) <= ?
+        ORDER BY COALESCE(pi.MinQty, 1) DESC
         LIMIT 1
-      `, [itemId, stockId, storeId]);
-      if (promoRow?.Price) {
-        finalPrice = promoRow.Price;
+      `, [itemId, stockId, storeId, today, today, qty]);
+
+      if (promoRow) {
+        if (promoRow.DiscountType === 'PERCENT') {
+          finalPrice = standardPrice * (1 - Math.max(0, Math.min(100, Number(promoRow.DiscountValue || 0))) / 100);
+        } else if (promoRow.DiscountType === 'FIXED') {
+          finalPrice = Math.max(0, standardPrice - Math.max(0, Number(promoRow.DiscountValue || 0)));
+        } else {
+          finalPrice = Number(promoRow.Price || 0);
+        }
+
         priceSource = `Promotion: ${promoRow.PromotionDesc}`;
         promoId = promoRow.PromotionId;
         promoDesc = promoRow.PromotionDesc;
@@ -857,7 +886,7 @@ export const posDb = {
       item_id: itemId,
       stock_id: stockId,
       standard_price: standardPrice,
-      unit_price: Math.round(finalPrice * 100) / 100,
+      unit_price: Math.round(Math.max(0, finalPrice) * 100) / 100,
       price_source: priceSource,
       promotion_id: promoId,
       promotion_desc: promoDesc
@@ -1008,18 +1037,132 @@ export const posDb = {
     const items = await d.getAllAsync<any>('SELECT * FROM ininvstock WHERE TransSerialNo = ? ORDER BY CAST(TrNo AS INTEGER)', [invoice.SerialNo]);
     return { document: invoice, items };
   },
-  getPromotions: async (storeId: number = 1): Promise<Promotion[]> => {
+  getPromotions: async (storeId: number = 1, includeInactive = false): Promise<Promotion[]> => {
     const d = await getDb();
     return await d.getAllAsync<Promotion>(`
       SELECT p.PromotionId, p.PromotionDesc, p.FromText, p.ToText, p.IsActive,
              COUNT(pi.ItemId) as ItemCount
       FROM inpromotion p
       JOIN inpromotionstore ps ON p.PromotionId = ps.PromotionId
-      LEFT JOIN inpromotionitem pi ON p.PromotionId = pi.PromotionId
-      WHERE ps.StoreId = ? AND p.IsActive = 1
+      LEFT JOIN inpromotionitem pi ON p.PromotionId = pi.PromotionId AND pi.IsActive = 1
+      WHERE ps.StoreId = ? AND (? = 1 OR p.IsActive = 1)
       GROUP BY p.PromotionId
-      ORDER BY p.PromotionDesc
-    `, [storeId]);
+      ORDER BY p.IsActive DESC, p.PromotionDesc
+    `, [storeId, includeInactive ? 1 : 0]);
+  },
+
+  getPromotionItems: async (promotionId: number) => {
+    const d = await getDb();
+    return await d.getAllAsync<any>(`
+      SELECT pi.PromotionId, pi.ItemId, pi.StockId, i.ItemDesc, s.StockCode,
+             COALESCE(pr.POSPrice1, pr.SellPrice1, 0) as StandardPrice,
+             COALESCE(pi.DiscountType, 'PRICE') as DiscountType,
+             COALESCE(pi.DiscountValue, pi.Price, 0) as DiscountValue,
+             COALESCE(pi.MinQty, 1) as MinQty,
+             COALESCE(pi.PromotionLimit, 0) as PromotionLimit,
+             pi.IsActive
+      FROM inpromotionitem pi
+      JOIN initem i ON i.ItemId = pi.ItemId
+      JOIN instock s ON s.ItemId = pi.ItemId AND s.StockId = pi.StockId
+      LEFT JOIN inprice pr ON pr.ItemId = pi.ItemId AND pr.StockId = pi.StockId
+      WHERE pi.PromotionId = ?
+      ORDER BY i.ItemDesc
+    `, [promotionId]);
+  },
+
+  createPromotion: async (data: {
+    storeId: number;
+    description: string;
+    fromText: string;
+    toText: string;
+  }) => {
+    const d = await getDb();
+    const description = data.description.trim();
+    if (!description) throw new Error('Promotion description is required.');
+    const idRow = await d.getFirstAsync<{ nextId: number }>('SELECT COALESCE(MAX(PromotionId), 0) + 1 as nextId FROM inpromotion');
+    const promotionId = idRow?.nextId || 1;
+    await d.withTransactionAsync(async () => {
+      await d.runAsync(
+        'INSERT INTO inpromotion (PromotionId, PromotionDesc, FromText, ToText, IsActive) VALUES (?, ?, ?, ?, 1)',
+        [promotionId, description, data.fromText.trim(), data.toText.trim()]
+      );
+      await d.runAsync(
+        'INSERT INTO inpromotionstore (PromotionId, StoreId, IsActive) VALUES (?, ?, 1)',
+        [promotionId, data.storeId]
+      );
+    });
+    return promotionId;
+  },
+
+  updatePromotion: async (promotionId: number, data: { description: string; fromText: string; toText: string; isActive: number }) => {
+    const d = await getDb();
+    const description = data.description.trim();
+    if (!description) throw new Error('Promotion description is required.');
+    await d.runAsync(
+      'UPDATE inpromotion SET PromotionDesc = ?, FromText = ?, ToText = ?, IsActive = ? WHERE PromotionId = ?',
+      [description, data.fromText.trim(), data.toText.trim(), data.isActive ? 1 : 0, promotionId]
+    );
+  },
+
+  deletePromotion: async (promotionId: number) => {
+    const d = await getDb();
+    await d.withTransactionAsync(async () => {
+      await d.runAsync('DELETE FROM inpromotionitem WHERE PromotionId = ?', [promotionId]);
+      await d.runAsync('DELETE FROM inpromotionstore WHERE PromotionId = ?', [promotionId]);
+      await d.runAsync('DELETE FROM inpromotion WHERE PromotionId = ?', [promotionId]);
+    });
+  },
+
+  addPromotionItem: async (data: {
+    promotionId: number;
+    itemId: number;
+    stockId: number;
+    price?: number;
+    discountType: 'PRICE' | 'PERCENT' | 'FIXED';
+    discountValue: number;
+    minQty?: number;
+    promotionLimit?: number;
+  }) => {
+    const d = await getDb();
+    const minQty = Math.max(1, Number(data.minQty || 1));
+    const discountValue = Math.max(0, Number(data.discountValue || 0));
+    let price = Number(data.price || 0);
+
+    if (data.discountType === 'PRICE') {
+      if (!price && discountValue > 0) price = discountValue;
+      if (!Number.isFinite(price) || price < 0) throw new Error('Promotional price must be valid.');
+    } else {
+      const standard = await d.getFirstAsync<{ POSPrice1: number; SellPrice1: number }>(
+        'SELECT POSPrice1, SellPrice1 FROM inprice WHERE ItemId = ? AND StockId = ?', [data.itemId, data.stockId]
+      );
+      const standardPrice = Number(standard?.POSPrice1 || standard?.SellPrice1 || 0);
+      if (!standardPrice) throw new Error('Product has no selling price.');
+      if (data.discountType === 'PERCENT' && discountValue > 100) throw new Error('Percentage discount cannot exceed 100%.');
+      price = data.discountType === 'FIXED' ? Math.max(0, standardPrice - discountValue) : Math.max(0, standardPrice * (1 - discountValue / 100));
+    }
+
+    const existing = await d.getFirstAsync<{ PromotionId: number }>(
+      'SELECT PromotionId FROM inpromotionitem WHERE PromotionId = ? AND ItemId = ? AND StockId = ?',
+      [data.promotionId, data.itemId, data.stockId]
+    );
+    if (existing) {
+      await d.runAsync(`
+        UPDATE inpromotionitem
+        SET Price = ?, DiscountType = ?, DiscountValue = ?, MinQty = ?, PromotionLimit = ?, IsActive = 1
+        WHERE PromotionId = ? AND ItemId = ? AND StockId = ?
+      `, [price, data.discountType, discountValue, minQty, Math.max(0, Number(data.promotionLimit || 0)), data.promotionId, data.itemId, data.stockId]);
+    } else {
+      await d.runAsync(`
+        INSERT INTO inpromotionitem
+          (PromotionId, ItemId, StockId, Price, PromotionLimit, DiscountType, DiscountValue, MinQty, IsActive)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+      `, [data.promotionId, data.itemId, data.stockId, price, Math.max(0, Number(data.promotionLimit || 0)), data.discountType, discountValue, minQty]);
+    }
+  },
+
+  removePromotionItem: async (promotionId: number, itemId: number, stockId: number) => {
+    const d = await getDb();
+    await d.runAsync('DELETE FROM inpromotionitem WHERE PromotionId = ? AND ItemId = ? AND StockId = ?', [promotionId, itemId, stockId]);
   }
 };
 
