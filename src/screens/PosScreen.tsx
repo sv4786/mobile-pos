@@ -17,6 +17,7 @@ export default function PosScreen({
   onQuote,
   onChangeCustomer,
   onApplyOneOffDiscount,
+  creditAvailable = 0,
 }: any) {
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('Cash');
@@ -65,6 +66,20 @@ export default function PosScreen({
 
   const completePayment = () => {
     const received = Number(amountReceived);
+
+    if (paymentMethod === 'Credit') {
+      if (!selectedCustomer || selectedCustomer.AccId === 1) {
+        Alert.alert('Credit Not Available', 'The walk-in cash customer cannot buy on credit. Select a customer account first.');
+        return;
+      }
+      if (creditAvailable < subTotal) {
+        Alert.alert('Credit Limit Exceeded', 'This customer has only R ' + Number(creditAvailable || 0).toFixed(2) + ' available credit.');
+        return;
+      }
+      onInvoice({ method: 'CREDIT', amountReceived: 0 });
+      setPaymentOpen(false);
+      return;
+    }
 
     if (!Number.isFinite(received) || received < subTotal) {
       return;
@@ -278,12 +293,31 @@ export default function PosScreen({
                   </Text>
                 </TouchableOpacity>
               ))}
-            </View>
+              <TouchableOpacity
+                key="Credit"
+                disabled={!selectedCustomer || selectedCustomer.AccId === 1 || creditAvailable < subTotal}
+                style={[paymentStyles.method, paymentMethod === 'Credit' && paymentStyles.methodActive,
+                  (!selectedCustomer || selectedCustomer.AccId === 1 || creditAvailable < subTotal) && { opacity: 0.35 }]}
+                onPress={() => {
+                  setPaymentMethod('Credit');
+                  setAmountReceived(subTotal.toFixed(2));
+                }}
+              >
+                <Text style={[paymentStyles.methodText, paymentMethod === 'Credit' && paymentStyles.methodTextActive]}>
+                  Credit
+                </Text>
+              </TouchableOpacity>
+              {paymentMethod === 'Credit' && (
+                <Text style={paymentStyles.help}>
+                  Available credit: R {Number(creditAvailable || 0).toFixed(2)}
+                </Text>
+              )}
+          </View>
 
             <Text style={paymentStyles.sectionLabel}>
-              {paymentMethod === 'Cash' ? 'AMOUNT RECEIVED' : 'AMOUNT PAID'}
+              {paymentMethod === 'Credit' ? 'CREDIT SALE' : paymentMethod === 'Cash' ? 'AMOUNT RECEIVED' : 'AMOUNT PAID'}
             </Text>
-            <TextInput
+            {paymentMethod !== 'Credit' && <TextInput
               style={paymentStyles.input}
               value={amountReceived}
               onChangeText={setAmountReceived}
@@ -291,7 +325,7 @@ export default function PosScreen({
               selectTextOnFocus
               placeholder="0.00"
               placeholderTextColor="#4b5563"
-            />
+            />}
 
             {paymentMethod === 'Cash' && (
               <View style={paymentStyles.changeBox}>
@@ -303,9 +337,9 @@ export default function PosScreen({
             <TouchableOpacity
               style={[
                 bs.primaryBtn,
-                (!Number.isFinite(cashReceived) || cashReceived < subTotal) && bs.btnDisabled,
+                paymentMethod !== 'Credit' && (!Number.isFinite(cashReceived) || cashReceived < subTotal) && bs.btnDisabled,
               ]}
-              disabled={!Number.isFinite(cashReceived) || cashReceived < subTotal}
+              disabled={paymentMethod === 'Credit' ? (!selectedCustomer || selectedCustomer.AccId === 1 || creditAvailable < subTotal) : (!Number.isFinite(cashReceived) || cashReceived < subTotal)}
               onPress={completePayment}
             >
               <Text style={bs.primaryBtnText}>Complete Sale</Text>
