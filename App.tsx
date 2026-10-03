@@ -20,6 +20,7 @@ import AnalyticsScreen from './src/screens/AnalyticsScreen';
 import PromotionsScreen from './src/screens/PromotionsScreen';
 import StoresScreen from './src/screens/StoresScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
+import InventoryScreen from './src/screens/InventoryScreen';
 import DocumentDetailScreen from './src/screens/DocumentDetailScreen';
 import { generateDocumentPdf } from './src/services/DocumentService';
 
@@ -31,6 +32,7 @@ type TabKey =
   | 'quotes'
   | 'invoices'
   | 'products'
+  | 'inventory'
   | 'customers'
   | 'promotions'
   | 'stocktake'
@@ -44,6 +46,7 @@ const DRAWER_TABS: { key: TabKey; label: string; icon: string }[] = [
   { key: 'quotes',      label: 'Quotes',        icon: 'QT' },
   { key: 'invoices',    label: 'Invoices',      icon: 'INV' },
   { key: 'products',    label: 'Products',      icon: 'ITM' },
+  { key: 'inventory',   label: 'Inventory',     icon: 'INV' },
   { key: 'customers',   label: 'Customers',     icon: 'CUS' },
   { key: 'stocktake',   label: 'Stock Take',    icon: 'STK' },
   { key: 'promotions',  label: 'Promotions',    icon: 'PRO' },
@@ -732,6 +735,14 @@ function AppContent() {
             onProductsChanged={() =>
               loadStoreData(currentStore?.StoreId ?? 1)
             }
+          />
+        )}
+
+        {activeTab === 'inventory' && (
+          <InventoryScreen
+            storeId={currentStore?.StoreId ?? 1}
+            stores={stores}
+            products={productsList}
           />
         )}
 
