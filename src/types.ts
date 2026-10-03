@@ -144,3 +144,24 @@ export interface CustomerDetails {
     quoteValue: number;
   };
 }
+
+
+export interface CustomerAccountTransaction {
+  TransactionId: number;
+  AccId: number;
+  TransactionType: 'INVOICE' | 'PAYMENT';
+  RefNo?: string;
+  InvoiceNo?: string;
+  Debit: number;
+  Credit: number;
+  Balance: number;
+  Notes?: string;
+  CreatedBy?: string;
+  CreatedDt: string;
+}
+
+export interface CustomerAccount {
+  customer: Customer;
+  balance: number;
+  availableCredit: number;
+}
