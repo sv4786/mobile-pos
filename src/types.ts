@@ -52,6 +52,9 @@ export interface CartItem {
   price_source: string;
   promotion_id?: number;
   promotion_desc?: string;
+  one_off_discount_type?: 'PERCENT' | 'FIXED';
+  one_off_discount_value?: number;
+  one_off_discount_amount?: number;
 }
 
 export interface Quote {
@@ -89,6 +92,24 @@ export interface Promotion {
   ToText: string;
   IsActive: number;
   ItemCount: number;
+}
+
+export interface PromotionItem {
+  PromotionId: number;
+  ItemId: number;
+  StockId: number;
+  ItemDesc: string;
+  StockCode: string;
+  StandardPrice: number;
+  DiscountType: 'PRICE' | 'PERCENT' | 'FIXED';
+  DiscountValue: number;
+  MinQty: number;
+  PromotionLimit: number;
+  IsActive: number;
+}
+
+export interface PromotionWithItems extends Promotion {
+  items: PromotionItem[];
 }
 
 export interface StockTakeItem {
