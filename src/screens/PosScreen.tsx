@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { CartItem } from '../types';
 import { Badge, Divider, EmptyState, SectionHeader, bs } from './shared';
 
@@ -16,16 +16,51 @@ export default function PosScreen({
   onInvoice,
   onQuote,
   onChangeCustomer,
+  onApplyOneOffDiscount,
 }: any) {
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('Cash');
   const [amountReceived, setAmountReceived] = useState('');
+  const [discountOpen, setDiscountOpen] = useState<number | null>(null);
+  const [discountType, setDiscountType] = useState<'PERCENT' | 'FIXED'>('PERCENT');
+  const [discountValue, setDiscountValue] = useState('');
 
   const openPayment = () => {
     if (cart.length === 0) return;
     setPaymentMethod('Cash');
     setAmountReceived(subTotal.toFixed(2));
     setPaymentOpen(true);
+  };
+
+  const openDiscount = (idx: number) => {
+    const current = cart[idx]?.one_off_discount_value || 0;
+    const type = cart[idx]?.one_off_discount_type || 'PERCENT';
+    setDiscountType(type);
+    setDiscountValue(current ? String(current) : '');
+    setDiscountOpen(idx);
+  };
+
+  const saveDiscount = () => {
+    if (discountOpen === null) return;
+    const value = Number(discountValue);
+
+    if (!Number.isFinite(value) || value < 0 || (discountType === 'PERCENT' && value > 100)) {
+      Alert.alert('Invalid Discount', discountType === 'PERCENT'
+        ? 'Enter a percentage from 0 to 100.'
+        : 'Enter a valid Rand amount.');
+      return;
+    }
+
+    onApplyOneOffDiscount(discountOpen, discountType, value);
+    setDiscountOpen(null);
+    setDiscountValue('');
+  };
+
+  const clearDiscount = () => {
+    if (discountOpen === null) return;
+    onApplyOneOffDiscount(discountOpen, undefined, 0);
+    setDiscountOpen(null);
+    setDiscountValue('');
   };
 
   const completePayment = () => {
@@ -75,9 +110,20 @@ export default function PosScreen({
                 </TouchableOpacity>
               </View>
               <Text style={bs.cartCode}>{item.product.StockCode}  |  {item.price_source}</Text>
+
               {!!item.promotion_desc && (
                 <Badge text={'PROMO: ' + item.promotion_desc} color="#f59e0b" />
               )}
+
+              {Number(item.one_off_discount_amount || 0) > 0 && (
+                <Badge
+                  text={'ONE-OFF: ' + (item.one_off_discount_type === 'PERCENT'
+                    ? item.one_off_discount_value?.toFixed(2) + '%'
+                    : 'R ' + item.one_off_discount_value?.toFixed(2))}
+                  color="#38bdf8"
+                />
+              )}
+
               <View style={bs.cartBottom}>
                 <View style={bs.qtyRow}>
                   <TouchableOpacity style={bs.qtyBtn} onPress={() => onQtyChange(idx, -1)}>
@@ -89,6 +135,21 @@ export default function PosScreen({
                   </TouchableOpacity>
                 </View>
                 <Text style={bs.cartPrice}>R {item.amount.toFixed(2)}</Text>
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 9 }}>
+                <TouchableOpacity style={posStyles.discountBtn} onPress={() => openDiscount(idx)}>
+                  <Text style={posStyles.discountBtnText}>
+                    {Number(item.one_off_discount_amount || 0) > 0 ? 'Edit Discount' : 'One-Off Discount'}
+                  </Text>
+                </TouchableOpacity>
+                {Number(item.one_off_discount_amount || 0) > 0 && (
+                  <TouchableOpacity style={posStyles.clearDiscountBtn} onPress={() => {
+                    onApplyOneOffDiscount(idx, undefined, 0);
+                  }}>
+                    <Text style={posStyles.clearDiscountText}>Remove</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
           ))
@@ -124,6 +185,69 @@ export default function PosScreen({
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      <Modal visible={discountOpen !== null} animationType="slide" transparent>
+        <View style={paymentStyles.overlay}>
+          <View style={paymentStyles.card}>
+            <View style={paymentStyles.header}>
+              <Text style={paymentStyles.title}>One-Off Item Discount</Text>
+              <TouchableOpacity onPress={() => setDiscountOpen(null)} style={paymentStyles.close}>
+                <Text style={paymentStyles.closeText}>X</Text>
+              </TouchableOpacity>
+            </View>
+
+            {discountOpen !== null && (
+              <Text style={paymentStyles.discountItem} numberOfLines={2}>
+                {cart[discountOpen]?.product.ItemDesc}
+              </Text>
+            )}
+
+            <Text style={paymentStyles.sectionLabel}>DISCOUNT TYPE</Text>
+            <View style={paymentStyles.methods}>
+              {(['PERCENT', 'FIXED'] as const).map(type => (
+                <TouchableOpacity
+                  key={type}
+                  style={[paymentStyles.method, discountType === type && paymentStyles.methodActive]}
+                  onPress={() => setDiscountType(type)}
+                >
+                  <Text style={[paymentStyles.methodText, discountType === type && paymentStyles.methodTextActive]}>
+                    {type === 'PERCENT' ? '% Percentage' : 'R Rand Amount'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={paymentStyles.sectionLabel}>
+              {discountType === 'PERCENT' ? 'DISCOUNT PERCENTAGE' : 'DISCOUNT PER UNIT'}
+            </Text>
+            <TextInput
+              style={paymentStyles.input}
+              value={discountValue}
+              onChangeText={setDiscountValue}
+              keyboardType="decimal-pad"
+              selectTextOnFocus
+              placeholder="0.00"
+              placeholderTextColor="#4b5563"
+            />
+
+            <Text style={paymentStyles.help}>
+              This discount applies only to this cart line. It does not change the product price, customer pricing, or saved promotions.
+            </Text>
+
+            <TouchableOpacity style={bs.primaryBtn} onPress={saveDiscount}>
+              <Text style={bs.primaryBtnText}>Apply One-Off Discount</Text>
+            </TouchableOpacity>
+            {discountOpen !== null && Number(cart[discountOpen]?.one_off_discount_amount || 0) > 0 && (
+              <TouchableOpacity style={bs.ghostBtn} onPress={clearDiscount}>
+                <Text style={bs.ghostBtnText}>Remove Discount</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={bs.ghostBtn} onPress={() => setDiscountOpen(null)}>
+              <Text style={bs.ghostBtnText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       <Modal visible={paymentOpen} animationType="slide" transparent>
         <View style={paymentStyles.overlay}>
@@ -197,6 +321,28 @@ export default function PosScreen({
   );
 }
 
+const posStyles = {
+  discountBtn: {
+    flex: 1,
+    backgroundColor: 'rgba(56,189,248,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(56,189,248,0.30)',
+    borderRadius: 8,
+    paddingVertical: 8,
+    alignItems: 'center' as const,
+  },
+  discountBtnText: { color: '#38bdf8', fontSize: 10, fontWeight: '800' as const },
+  clearDiscountBtn: {
+    backgroundColor: '#161d2b',
+    borderWidth: 1,
+    borderColor: '#2d3748',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    justifyContent: 'center' as const,
+  },
+  clearDiscountText: { color: '#9ca3af', fontSize: 10, fontWeight: '700' as const },
+};
+
 const paymentStyles = {
   overlay: {
     flex: 1,
@@ -230,90 +376,19 @@ const paymentStyles = {
     alignItems: 'center' as const,
     justifyContent: 'center' as const,
   },
-  closeText: {
-    color: '#ffffff',
-    fontWeight: '800' as const,
-  },
-  dueLabel: {
-    color: '#6b7280',
-    fontSize: 10,
-    fontWeight: '800' as const,
-    letterSpacing: 1,
-  },
-  due: {
-    color: '#10b981',
-    fontSize: 30,
-    fontWeight: '900' as const,
-    marginTop: 4,
-    marginBottom: 20,
-  },
-  sectionLabel: {
-    color: '#9ca3af',
-    fontSize: 10,
-    fontWeight: '800' as const,
-    letterSpacing: 1,
-    marginBottom: 8,
-  },
-  methods: {
-    flexDirection: 'row' as const,
-    flexWrap: 'wrap' as const,
-    gap: 8,
-    marginBottom: 18,
-  },
-  method: {
-    flex: 1,
-    minWidth: 70,
-    borderWidth: 1,
-    borderColor: '#374151',
-    borderRadius: 10,
-    paddingVertical: 11,
-    alignItems: 'center' as const,
-    backgroundColor: '#161d2b',
-  },
-  methodActive: {
-    borderColor: '#6366f1',
-    backgroundColor: 'rgba(99,102,241,0.15)',
-  },
-  methodText: {
-    color: '#9ca3af',
-    fontSize: 12,
-    fontWeight: '700' as const,
-  },
-  methodTextActive: {
-    color: '#6366f1',
-  },
-  input: {
-    backgroundColor: '#161d2b',
-    borderWidth: 1,
-    borderColor: '#374151',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: '#f9fafb',
-    fontSize: 18,
-    fontWeight: '700' as const,
-    marginBottom: 12,
-  },
-  changeBox: {
-    flexDirection: 'row' as const,
-    alignItems: 'center' as const,
-    justifyContent: 'space-between' as const,
-    backgroundColor: 'rgba(16,185,129,0.10)',
-    borderWidth: 1,
-    borderColor: 'rgba(16,185,129,0.25)',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 8,
-  },
-  changeLabel: {
-    color: '#6b7280',
-    fontSize: 10,
-    fontWeight: '800' as const,
-    letterSpacing: 1,
-  },
-  changeValue: {
-    color: '#10b981',
-    fontSize: 18,
-    fontWeight: '800' as const,
-  },
+  closeText: { color: '#ffffff', fontWeight: '800' as const },
+  discountItem: { color: '#f9fafb', fontSize: 13, fontWeight: '700' as const, marginBottom: 18 },
+  dueLabel: { color: '#6b7280', fontSize: 10, fontWeight: '800' as const, letterSpacing: 1 },
+  due: { color: '#10b981', fontSize: 30, fontWeight: '900' as const, marginTop: 4, marginBottom: 20 },
+  sectionLabel: { color: '#9ca3af', fontSize: 10, fontWeight: '800' as const, letterSpacing: 1, marginBottom: 8 },
+  methods: { flexDirection: 'row' as const, flexWrap: 'wrap' as const, gap: 8, marginBottom: 18 },
+  method: { flex: 1, minWidth: 100, borderWidth: 1, borderColor: '#374151', borderRadius: 10, paddingVertical: 11, alignItems: 'center' as const, backgroundColor: '#161d2b' },
+  methodActive: { borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.15)' },
+  methodText: { color: '#9ca3af', fontSize: 12, fontWeight: '700' as const },
+  methodTextActive: { color: '#6366f1' },
+  input: { backgroundColor: '#161d2b', borderWidth: 1, borderColor: '#374151', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, color: '#f9fafb', fontSize: 18, fontWeight: '700' as const, marginBottom: 12 },
+  help: { color: '#6b7280', fontSize: 11, lineHeight: 17, marginBottom: 8 },
+  changeBox: { flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'space-between' as const, backgroundColor: 'rgba(16,185,129,0.10)', borderWidth: 1, borderColor: 'rgba(16,185,129,0.25)', borderRadius: 10, padding: 12, marginBottom: 8 },
+  changeLabel: { color: '#6b7280', fontSize: 10, fontWeight: '800' as const, letterSpacing: 1 },
+  changeValue: { color: '#10b981', fontSize: 18, fontWeight: '800' as const },
 };
