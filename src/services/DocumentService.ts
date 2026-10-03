@@ -9,6 +9,7 @@ type DocumentItem = {
   UnitIncl: number;
   VatAmount: number;
   Amount: number;
+  Discount?: number;
 };
 
 type DocumentData = {
@@ -46,6 +47,7 @@ export async function generateDocumentPdf(
       <td class="right">${item.Qty}</td>
       <td class="right">${money(item.UnitExcl)}</td>
       <td class="right">${money(item.VatAmount)}</td>
+      <td class="right">${money(item.Discount || 0)}</td>
       <td class="right">${money(item.Amount)}</td>
     </tr>
   `).join('');
@@ -98,6 +100,7 @@ export async function generateDocumentPdf(
               <th class="right">Qty</th>
               <th class="right">Unit Excl.</th>
               <th class="right">VAT</th>
+              <th class="right">Discount</th>
               <th class="right">Total</th>
             </tr>
           </thead>
