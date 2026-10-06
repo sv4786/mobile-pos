@@ -22,6 +22,8 @@ import StoresScreen from './src/screens/StoresScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import InventoryScreen from './src/screens/InventoryScreen';
 import DocumentDetailScreen from './src/screens/DocumentDetailScreen';
+import AppLockScreen from './src/screens/AppLockScreen';
+import { hasOwnerPin } from './src/services/SecurityService';
 import { generateDocumentPdf } from './src/services/DocumentService';
 
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -953,10 +955,37 @@ function AppContent() {
   );
 }
 
+function AppGate() {
+  const [ready, setReady] = useState(false);
+  const [locked, setLocked] = useState(false);
+
+  useEffect(() => {
+    hasOwnerPin()
+      .then(enabled => setLocked(enabled))
+      .finally(() => setReady(true));
+  }, []);
+
+  if (!ready) {
+    return (
+      <View style={bs.splash}>
+        <ActivityIndicator size="large" color="#6366f1" />
+        <Text style={bs.splashTitle}>Mobile POS</Text>
+        <Text style={bs.splashSub}>Checking security...</Text>
+      </View>
+    );
+  }
+
+  if (locked) {
+    return <AppLockScreen onUnlocked={() => setLocked(false)} />;
+  }
+
+  return <AppContent />;
+}
+
 export default function App() {
   return (
     <SafeAreaProvider>
-      <AppContent />
+      <AppGate />
     </SafeAreaProvider>
   );
 }
