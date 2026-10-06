@@ -3,7 +3,7 @@ import { Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { File } from 'expo-file-system';
 import * as IntentLauncher from 'expo-intent-launcher';
 import { posDb } from '../database';
-import { shareDocumentPdf } from '../services/DocumentService';
+import { printDocumentPdf, shareDocumentPdf } from '../services/DocumentService';
 import { Divider, EmptyState, SectionHeader, bs } from './shared';
 
 export default function DocumentDetailScreen({
@@ -90,6 +90,18 @@ export default function DocumentDetailScreen({
     }
   };
 
+  const printPdf = async () => {
+    if (!pdfPath) {
+      Alert.alert('PDF unavailable', 'No PDF is stored for this document.');
+      return;
+    }
+    try {
+      await printDocumentPdf(pdfPath);
+    } catch (e: any) {
+      Alert.alert('Print unavailable', e.message);
+    }
+  };
+
   const subtotal = Number(doc.SubTotal || 0);
   const vat = Number(doc.VatTotal || 0);
   const total = subtotal + vat;
@@ -146,6 +158,10 @@ export default function DocumentDetailScreen({
 
         <TouchableOpacity style={bs.primaryBtn} onPress={openPdf}>
           <Text style={bs.primaryBtnText}>Open PDF</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={bs.primaryBtn} onPress={printPdf}>
+          <Text style={bs.primaryBtnText}>Print Receipt / Document</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={bs.ghostBtn} onPress={sharePdf}>
