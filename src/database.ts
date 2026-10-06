@@ -366,6 +366,47 @@ async function seedDatabase(d: SQLite.SQLiteDatabase) {
 // ----------------------------------------------------
 
 export const posDb = {
+
+  backupDatabase: async () => {
+    const source = await getDb();
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const name = `mobile-pos-backup-${stamp}.db`;
+    const destination = await SQLite.openDatabaseAsync(name);
+    try {
+      await SQLite.backupDatabaseAsync({
+        sourceDatabase: source,
+        sourceDatabaseName: 'main',
+        destDatabase: destination,
+        destDatabaseName: 'main',
+      });
+    } finally {
+      await destination.closeAsync();
+    }
+    return `${SQLite.defaultDatabaseDirectory}/${name}`;
+  },
+
+  restoreDatabase: async (sourceUri: string) => {
+    if (!sourceUri) throw new Error('No backup file was selected.');
+    const current = await getDb();
+    await current.closeAsync();
+    db = null;
+    dbInitPromise = null;
+
+    try {
+      await SQLite.deleteDatabaseAsync('mobile_pos.db');
+      const FileSystem = require('expo-file-system/legacy');
+      await FileSystem.copyAsync({
+        from: sourceUri,
+        to: `${SQLite.defaultDatabaseDirectory}/mobile_pos.db`,
+      });
+      const reopened = await getDb();
+      await reopened.execAsync('PRAGMA journal_mode = WAL;');
+    } catch (error) {
+      db = null;
+      throw error;
+    }
+  },
+
   getDbStats: async () => {
     const d = await getDb();
     const tables = [
