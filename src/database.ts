@@ -1,3 +1,4 @@
+import * as FileSystem from 'expo-file-system/legacy';
 import * as SQLite from 'expo-sqlite';
 import { Product, Store, Customer, Quote, Invoice, Promotion } from './types';
 
@@ -394,7 +395,6 @@ export const posDb = {
 
     try {
       await SQLite.deleteDatabaseAsync('mobile_pos.db');
-      const FileSystem = require('expo-file-system/legacy');
       await FileSystem.copyAsync({
         from: sourceUri,
         to: `${SQLite.defaultDatabaseDirectory}/mobile_pos.db`,
