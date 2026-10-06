@@ -4,7 +4,7 @@ import { File } from 'expo-file-system';
 import * as IntentLauncher from 'expo-intent-launcher';
 import { posDb } from '../database';
 import { EmptyState, SectionHeader, bs } from './shared';
-import { generateAnalyticsPdf, shareDocumentPdf } from '../services/DocumentService';
+import { generateAnalyticsPdf, generateBusinessReportPdf, shareDocumentPdf } from '../services/DocumentService';
 
 type Props = {
   storeId: number;
@@ -99,6 +99,15 @@ export default function AnalyticsScreen({ storeId, storeName, storeCode }: Props
         <View style={bs.totalsRow}><Text style={bs.totalsLbl}>Amount paid</Text><Text style={bs.totalsVal}>{money(data.summary?.paid)}</Text></View>
       </View>
 
+      <SectionHeader title="Business Reports" />
+      <View style={bs.listCard}>
+        <Text style={bs.listSub}>Generate a detailed sales, profit, customer, payment and stock report for a date range.</Text>
+        <TextInput style={bs.formInput} value={reportFrom} onChangeText={setReportFrom} placeholder="From date YYYY-MM-DD" placeholderTextColor="#4b5563" />
+        <TextInput style={bs.formInput} value={reportTo} onChangeText={setReportTo} placeholder="To date YYYY-MM-DD" placeholderTextColor="#4b5563" />
+        <TouchableOpacity style={bs.primaryBtn} onPress={exportBusinessReport}><Text style={bs.primaryBtnText}>Generate Business Report PDF</Text></TouchableOpacity>
+        {businessReport && <Text style={bs.listSub}>Revenue: R {Number(businessReport.sales.revenue).toFixed(2)}  •  Gross profit: R {Number(businessReport.profit.grossProfit).toFixed(2)}  •  Margin: {Number(businessReport.profit.margin).toFixed(1)}%</Text>}
+      </View>
+
       <SectionHeader title="Revenue Trend" />
       {trend.length === 0 ? (
         <EmptyState icon="R" title="No sales yet" sub="Daily revenue will appear after invoices are created." />
@@ -179,3 +188,14 @@ export default function AnalyticsScreen({ storeId, storeName, storeCode }: Props
     </ScrollView>
   );
 }
+
+      {businessReportUri && (
+        <Modal visible transparent animationType="slide" onRequestClose={() => setBusinessReportUri(null)}>
+          <View style={bs.modalOverlay}><View style={bs.modalCard}>
+            <Text style={bs.modalTitle}>Business Report Ready</Text>
+            <TouchableOpacity style={bs.primaryBtn} onPress={() => openPdf(businessReportUri)}><Text style={bs.primaryBtnText}>Open PDF</Text></TouchableOpacity>
+            <TouchableOpacity style={bs.ghostBtn} onPress={async () => { try { await shareDocumentPdf(businessReportUri); } catch (e:any) { Alert.alert('Share PDF', e.message); } }}><Text style={bs.ghostBtnText}>Share PDF</Text></TouchableOpacity>
+            <TouchableOpacity style={bs.ghostBtn} onPress={() => setBusinessReportUri(null)}><Text style={bs.ghostBtnText}>Close</Text></TouchableOpacity>
+          </View></View>
+        </Modal>
+      )}
