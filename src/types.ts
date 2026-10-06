@@ -165,3 +165,16 @@ export interface CustomerAccount {
   balance: number;
   availableCredit: number;
 }
+
+
+export interface BusinessReport {
+  fromDate: string;
+  toDate: string;
+  sales: { invoices: number; revenue: number; vat: number; discounts: number; paid: number; creditSales: number; };
+  profit: { cost: number; grossProfit: number; margin: number; };
+  topProducts: Array<{ ItemDesc: string; Qty: number; Sales: number; Cost: number; Profit: number; }>;
+  paymentMethods: Array<{ method: string; amount: number; count: number; }>;
+  topCustomers: Array<{ Company: string; Sales: number; Paid: number; Outstanding: number; }>;
+  stock: { totalValue: number; lowStock: number; outOfStock: number; };
+  discounts: Array<{ type: string; amount: number; count: number; }>;
+}
