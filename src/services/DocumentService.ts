@@ -318,3 +318,39 @@ export async function generateCustomerStatementPdf(data: CustomerStatementPdfDat
   if (!savedInfo.exists) throw new Error('Statement PDF could not be saved to local storage.');
   return targetUri;
 }
+
+
+export async function generateBusinessReportPdf(data: any, storeName: string, storeCode: string): Promise<string> {
+  const money = (n:number) => `R ${Number(n||0).toFixed(2)}`;
+  const esc = (v:any) => escapeHtml(String(v ?? ''));
+  const productRows = (data.topProducts || []).map((x:any) => `<tr><td>${esc(x.ItemDesc)}</td><td>${Number(x.Qty).toFixed(2)}</td><td>${money(x.Sales)}</td><td>${money(x.Cost)}</td><td>${money(x.Profit)}</td></tr>`).join('');
+  const paymentRows = (data.paymentMethods || []).map((x:any) => `<tr><td>${esc(x.method)}</td><td>${x.count}</td><td>${money(x.amount)}</td></tr>`).join('');
+  const customerRows = (data.topCustomers || []).map((x:any) => `<tr><td>${esc(x.Company)}</td><td>${money(x.Sales)}</td><td>${money(x.Paid)}</td><td>${money(x.Outstanding)}</td></tr>`).join('');
+  const html = `<html><head><meta name="viewport" content="width=device-width, initial-scale=1.0"/><style>
+  body{font-family:Arial;color:#111827;padding:28px}h1{font-size:24px;margin:0 0 4px}h2{font-size:16px;margin-top:22px}
+  .muted{color:#6b7280;font-size:10px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.box{background:#f3f4f6;padding:12px;margin-top:12px}
+  table{width:100%;border-collapse:collapse;margin-top:8px}th{background:#111827;color:white;padding:7px;text-align:left;font-size:9px}td{border-bottom:1px solid #e5e7eb;padding:6px;font-size:9px}
+  </style></head><body>
+  <h1>Business Performance Report</h1><div class="muted">${esc(storeName)} • ${esc(storeCode)}</div>
+  <div class="muted">Period: ${esc(data.fromDate)} to ${esc(data.toDate)}</div>
+  <div class="grid">
+    <div class="box"><b>Revenue</b><br/>${money(data.sales.revenue)}</div>
+    <div class="box"><b>Gross Profit</b><br/>${money(data.profit.grossProfit)}</div>
+    <div class="box"><b>Margin</b><br/>${Number(data.profit.margin).toFixed(1)}%</div>
+    <div class="box"><b>Invoices</b><br/>${data.sales.invoices}</div>
+    <div class="box"><b>VAT</b><br/>${money(data.sales.vat)}</div>
+    <div class="box"><b>Credit Sales</b><br/>${money(data.sales.creditSales)}</div>
+  </div>
+  <h2>Sales & Profit by Product</h2><table><tr><th>Product</th><th>Qty</th><th>Sales</th><th>Cost</th><th>Profit</th></tr>${productRows}</table>
+  <h2>Payment Methods</h2><table><tr><th>Method</th><th>Count</th><th>Amount</th></tr>${paymentRows}</table>
+  <h2>Top Customers</h2><table><tr><th>Customer</th><th>Sales</th><th>Paid</th><th>Outstanding</th></tr>${customerRows}</table>
+  <h2>Inventory Snapshot</h2><div class="box">Stock value: ${money(data.stock.totalValue)}<br/>Low stock items: ${data.stock.lowStock}<br/>Out of stock: ${data.stock.outOfStock}</div>
+  </body></html>`;
+  const result = await Print.printToFileAsync({ html, base64: true });
+  if (!result.base64) throw new Error('Report PDF data was not returned.');
+  const targetUri = `${FileSystem.documentDirectory}business-report-${data.fromDate}-${data.toDate}-${Date.now()}.pdf`;
+  await FileSystem.writeAsStringAsync(targetUri, result.base64, { encoding: FileSystem.EncodingType.Base64 });
+  const info = await FileSystem.getInfoAsync(targetUri);
+  if (!info.exists) throw new Error('Business report PDF could not be saved.');
+  return targetUri;
+}
