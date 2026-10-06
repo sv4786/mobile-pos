@@ -935,6 +935,7 @@ export const posDb = {
         );
       }
     });
+    await posDb.logAudit('STOCK_TAKE', 'INVENTORY', String(stockTakeId), 'Stock take ' + stockTakeNo + ' finalised with ' + scans.length + ' lines');
 
     return { stockTakeId, stockTakeNo };
   },
