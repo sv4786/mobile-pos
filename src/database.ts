@@ -381,6 +381,100 @@ export const posDb = {
     return stats;
   },
 
+
+  getBusinessReport: async (storeId: number, fromDate: string, toDate: string) => {
+    const d = await getDb();
+    const from = fromDate + ' 00:00:00';
+    const to = toDate + ' 23:59:59';
+    const sales = await d.getFirstAsync<any>(`
+      SELECT COUNT(*) invoices,
+             COALESCE(SUM(SubTotal + VatTotal),0) revenue,
+             COALESCE(SUM(VatTotal),0) vat,
+             COALESCE(SUM(Discount),0) discounts,
+             COALESCE(SUM(AmtPaid),0) paid,
+             COALESCE(SUM(CASE WHEN UPPER(COALESCE(PMRef,''))='CREDIT' THEN SubTotal + VatTotal ELSE 0 END),0) creditSales
+      FROM ininvlist
+      WHERE StoreId = ? AND CreatedDt BETWEEN ? AND ? AND COALESCE(IsQuote,0)=0
+    `, [storeId, from, to]);
+
+    const profitRows = await d.getAllAsync<any>(`
+      SELECT s.ItemDesc, s.Qty, s.Amount AS Sales,
+             COALESCE(s.CostPrice, p.AvgCost, p.LastCost, 0) * s.Qty AS Cost
+      FROM ininvstock s
+      LEFT JOIN inprice p ON p.ItemId = s.ItemId AND p.StockId = s.StockId
+      JOIN ininvlist h ON h.SerialNo = s.TransSerialNo
+      WHERE h.StoreId = ? AND h.CreatedDt BETWEEN ? AND ?
+    `, [storeId, from, to]);
+    const topMap: Record<string, any> = {};
+    let totalCost = 0;
+    let totalSales = 0;
+    for (const row of profitRows) {
+      const key = row.ItemDesc || 'Unknown Item';
+      const qty = Number(row.Qty || 0);
+      const salesValue = Number(row.Sales || 0);
+      const cost = Number(row.Cost || 0);
+      totalCost += cost;
+      totalSales += salesValue;
+      if (!topMap[key]) topMap[key] = { ItemDesc: key, Qty: 0, Sales: 0, Cost: 0, Profit: 0 };
+      topMap[key].Qty += qty;
+      topMap[key].Sales += salesValue;
+      topMap[key].Cost += cost;
+      topMap[key].Profit += salesValue - cost;
+    }
+    const topProducts = Object.values(topMap).sort((a:any,b:any) => b.Sales-a.Sales).slice(0,20);
+    const grossProfit = totalSales - totalCost;
+    const margin = totalSales ? (grossProfit / totalSales) * 100 : 0;
+
+    const paymentMethods = await d.getAllAsync<any>(`
+      SELECT COALESCE(NULLIF(PMRef,''),'Unknown') method,
+             COALESCE(SUM(SubTotal + VatTotal),0) amount, COUNT(*) count
+      FROM ininvlist
+      WHERE StoreId = ? AND CreatedDt BETWEEN ? AND ? AND COALESCE(IsQuote,0)=0
+      GROUP BY COALESCE(NULLIF(PMRef,''),'Unknown')
+      ORDER BY amount DESC
+    `, [storeId, from, to]);
+
+    const topCustomers = await d.getAllAsync<any>(`
+      SELECT Company, COALESCE(SUM(SubTotal + VatTotal),0) Sales,
+             COALESCE(SUM(AmtPaid),0) Paid,
+             COALESCE(SUM((SubTotal + VatTotal) - COALESCE(AmtPaid,0)),0) Outstanding
+      FROM ininvlist
+      WHERE StoreId = ? AND CreatedDt BETWEEN ? AND ? AND COALESCE(IsQuote,0)=0
+      GROUP BY Company ORDER BY Sales DESC LIMIT 20
+    `, [storeId, from, to]);
+
+    const stock = await d.getFirstAsync<any>(`
+      SELECT COALESCE(SUM(q.QtyOnHand * COALESCE(p.AvgCost,p.LastCost,0)),0) totalValue,
+             COALESCE(SUM(CASE WHEN q.QtyOnHand > 0 AND q.QtyOnHand <= 5 THEN 1 ELSE 0 END),0) lowStock,
+             COALESCE(SUM(CASE WHEN q.QtyOnHand <= 0 THEN 1 ELSE 0 END),0) outOfStock
+      FROM inqty q
+      LEFT JOIN inprice p ON p.ItemId=q.ItemId AND p.StockId=q.StockId
+      WHERE q.StoreId = ?
+    `, [storeId]);
+
+    const discounts = await d.getAllAsync<any>(`
+      SELECT CASE WHEN Discount > 0 THEN 'Invoice Discount' ELSE 'No Discount' END type,
+             COALESCE(SUM(Discount),0) amount, COUNT(*) count
+      FROM ininvlist
+      WHERE StoreId = ? AND CreatedDt BETWEEN ? AND ? AND COALESCE(IsQuote,0)=0
+      GROUP BY CASE WHEN Discount > 0 THEN 'Invoice Discount' ELSE 'No Discount' END
+      ORDER BY amount DESC
+    `, [storeId, from, to]);
+
+    return {
+      fromDate, toDate,
+      sales: {
+        invoices: Number(sales?.invoices || 0), revenue: Number(sales?.revenue || 0),
+        vat: Number(sales?.vat || 0), discounts: Number(sales?.discounts || 0),
+        paid: Number(sales?.paid || 0), creditSales: Number(sales?.creditSales || 0),
+      },
+      profit: { cost: totalCost, grossProfit, margin },
+      topProducts, paymentMethods, topCustomers,
+      stock: { totalValue: Number(stock?.totalValue || 0), lowStock: Number(stock?.lowStock || 0), outOfStock: Number(stock?.outOfStock || 0) },
+      discounts,
+    };
+  },
+
   getStores: async (): Promise<Store[]> => {
     const d = await getDb();
     return await d.getAllAsync<Store>("SELECT StoreId, StoreCode, StoreDesc, Tel, Cell, Email, IsOnLine FROM store ORDER BY StoreDesc");
