@@ -453,7 +453,7 @@ export const posDb = {
   getDbStats: async () => {
     const d = await getDb();
     const tables = [
-      'initem', 'instock', 'inqty', 'aracc', 'inprice', 
+      'initem', 'instock', 'inqty', 'aracc', 'inprice',
       'arpmatrix', 'inpromotion', 'inqulist', 'inqustock',
       'ininvlist', 'ininvstock', 'store', 'arreps'
     ];
@@ -464,6 +464,7 @@ export const posDb = {
     }
     return stats;
   },
+
 
 
   getBusinessReport: async (storeId: number, fromDate: string, toDate: string) => {
