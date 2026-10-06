@@ -152,6 +152,8 @@ export default function SettingsScreen({
         <TouchableOpacity style={bs.settingsAction} onPress={async () => {
           try {
             const uri = await posDb.backupDatabase();
+            await posDb.logAudit('BACKUP', 'DATABASE', '', 'Database backup shared/exported');
+            await loadSecurity();
             if (await Sharing.isAvailableAsync()) {
               await Sharing.shareAsync(uri, { mimeType: 'application/octet-stream', dialogTitle: 'Save Mobile POS Backup' });
             } else {
