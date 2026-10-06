@@ -829,6 +829,7 @@ function AppContent() {
           <SettingsScreen
             currentStore={currentStore}
             onManageStores={() => handleTabChange('stores')}
+            onDataRestored={() => loadStoreData(currentStore?.StoreId ?? 1)}
           />
         )}
       </View>
