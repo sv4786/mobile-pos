@@ -598,6 +598,7 @@ export const posDb = {
       INSERT INTO aracc (AccId, AccCode, Company, Contact, Tel, Cell, Email, PriceListId, AutoDisc, AllowPriceMatrix, CrLimit)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [accId, code, company, data.contact?.trim() || '', data.tel?.trim() || '', data.cell?.trim() || '', data.email?.trim() || '', data.priceListId || null, autoDisc, allowMatrix, crLimit]);
+    await posDb.logAudit('CREATE', 'CUSTOMER', String(accId), 'Customer created: ' + company);
     return await d.getFirstAsync<Customer>('SELECT AccId, AccCode, Company, Contact, Tel, Cell, Email, PriceListId, COALESCE(AutoDisc,0) AutoDisc, COALESCE(AllowPriceMatrix,0) AllowPriceMatrix, CrLimit FROM aracc WHERE AccId = ?', [accId]);
   },
 
@@ -619,6 +620,7 @@ export const posDb = {
         PriceListId = ?, AutoDisc = ?, AllowPriceMatrix = ?, CrLimit = ?
       WHERE AccId = ?
     `, [code, company, data.contact?.trim() || '', data.tel?.trim() || '', data.cell?.trim() || '', data.email?.trim() || '', data.priceListId || null, autoDisc, allowMatrix, crLimit, accId]);
+    await posDb.logAudit('UPDATE', 'CUSTOMER', String(accId), 'Customer updated: ' + company);
     return await d.getFirstAsync<Customer>('SELECT AccId, AccCode, Company, Contact, Tel, Cell, Email, PriceListId, COALESCE(AutoDisc,0) AutoDisc, COALESCE(AllowPriceMatrix,0) AllowPriceMatrix, CrLimit FROM aracc WHERE AccId = ?', [accId]);
   },
 
@@ -632,6 +634,7 @@ export const posDb = {
     }
     await d.runAsync('DELETE FROM arpmatrix WHERE AccId = ?', [accId]);
     await d.runAsync('DELETE FROM aracc WHERE AccId = ?', [accId]);
+    await posDb.logAudit('DELETE', 'CUSTOMER', String(accId), 'Customer deleted');
   },
 
 
@@ -1545,6 +1548,7 @@ export const posDb = {
         [promotionId, data.storeId]
       );
     });
+    await posDb.logAudit('CREATE', 'PROMOTION', String(promotionId), 'Promotion created: ' + description);
     return promotionId;
   },
 
@@ -1556,6 +1560,7 @@ export const posDb = {
       'UPDATE inpromotion SET PromotionDesc = ?, FromText = ?, ToText = ?, IsActive = ? WHERE PromotionId = ?',
       [description, data.fromText.trim(), data.toText.trim(), data.isActive ? 1 : 0, promotionId]
     );
+    await posDb.logAudit('UPDATE', 'PROMOTION', String(promotionId), 'Promotion updated: ' + description);
   },
 
   deletePromotion: async (promotionId: number) => {
@@ -1565,6 +1570,7 @@ export const posDb = {
       await d.runAsync('DELETE FROM inpromotionstore WHERE PromotionId = ?', [promotionId]);
       await d.runAsync('DELETE FROM inpromotion WHERE PromotionId = ?', [promotionId]);
     });
+    await posDb.logAudit('DELETE', 'PROMOTION', String(promotionId), 'Promotion deleted');
   },
 
   addPromotionItem: async (data: {
@@ -1612,11 +1618,13 @@ export const posDb = {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
       `, [data.promotionId, data.itemId, data.stockId, price, Math.max(0, Number(data.promotionLimit || 0)), data.discountType, discountValue, minQty]);
     }
+    await posDb.logAudit('UPDATE', 'PROMOTION_ITEM', String(data.promotionId), 'Promotion item updated');
   },
 
   removePromotionItem: async (promotionId: number, itemId: number, stockId: number) => {
     const d = await getDb();
     await d.runAsync('DELETE FROM inpromotionitem WHERE PromotionId = ? AND ItemId = ? AND StockId = ?', [promotionId, itemId, stockId]);
+    await posDb.logAudit('DELETE', 'PROMOTION_ITEM', String(promotionId), 'Promotion item removed');
   }
 };
 
