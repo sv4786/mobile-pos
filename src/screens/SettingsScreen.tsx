@@ -8,9 +8,11 @@ import { bs } from './shared';
 export default function SettingsScreen({
   currentStore,
   onManageStores,
+  onDataRestored,
 }: {
   currentStore: Store | null;
   onManageStores: () => void;
+  onDataRestored?: () => void;
 }) {
   return (
     <ScrollView style={bs.screen} contentContainerStyle={{ paddingBottom: 32 }}>
@@ -115,7 +117,8 @@ export default function SettingsScreen({
                   });
                   if (result.canceled || !result.assets?.[0]?.uri) return;
                   await posDb.restoreDatabase(result.assets[0].uri);
-                  Alert.alert('Restore Complete', 'The database was restored. The app will reload the local data when you revisit screens.');
+                  onDataRestored?.();
+                  Alert.alert('Restore Complete', 'The database was restored and the POS data has been reloaded.');
                 } catch (e: any) {
                   Alert.alert('Restore Failed', e?.message || 'Could not restore the selected backup.');
                 }
