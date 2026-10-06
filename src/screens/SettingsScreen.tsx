@@ -1,4 +1,7 @@
-import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
+import * as Sharing from 'expo-sharing';
+import { posDb } from '../database';
 import { Store } from '../types';
 import { bs } from './shared';
 
@@ -71,6 +74,61 @@ export default function SettingsScreen({
           Products, customers, stock, quotes, invoices, and other POS data are
           stored locally on this device.
         </Text>
+      </View>
+
+      <View style={bs.settingsCard}>
+        <Text style={bs.settingsSectionTitle}>Backup & Recovery</Text>
+        <Text style={bs.helpText}>
+          Back up your complete local POS database to a file. Keep the backup somewhere safe before changing devices or reinstalling the app.
+        </Text>
+        <TouchableOpacity style={bs.settingsAction} onPress={async () => {
+          try {
+            const uri = await posDb.backupDatabase();
+            if (await Sharing.isAvailableAsync()) {
+              await Sharing.shareAsync(uri, { mimeType: 'application/octet-stream', dialogTitle: 'Save Mobile POS Backup' });
+            } else {
+              Alert.alert('Backup Created', uri);
+            }
+          } catch (e: any) {
+            Alert.alert('Backup Failed', e?.message || 'Could not create the database backup.');
+          }
+        }}>
+          <View style={{ flex: 1 }}>
+            <Text style={bs.settingsActionTitle}>Backup Database</Text>
+            <Text style={bs.settingsActionSub}>Create and share a complete SQLite backup.</Text>
+          </View>
+          <Text style={bs.settingsChevron}>›</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={bs.settingsAction} onPress={() => {
+          Alert.alert(
+            'Restore Database',
+            'Restoring replaces the current POS data with the selected backup. This cannot be undone.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Choose Backup', style: 'destructive', onPress: async () => {
+                try {
+                  const result = await DocumentPicker.getDocumentAsync({
+                    type: ['application/octet-stream', 'application/x-sqlite3', 'application/vnd.sqlite3', '*/*'],
+                    copyToCacheDirectory: true,
+                    multiple: false,
+                  });
+                  if (result.canceled || !result.assets?.[0]?.uri) return;
+                  await posDb.restoreDatabase(result.assets[0].uri);
+                  Alert.alert('Restore Complete', 'The database was restored. The app will reload the local data when you revisit screens.');
+                } catch (e: any) {
+                  Alert.alert('Restore Failed', e?.message || 'Could not restore the selected backup.');
+                }
+              } }
+            ]
+          );
+        }}>
+          <View style={{ flex: 1 }}>
+            <Text style={bs.settingsActionTitle}>Restore Database</Text>
+            <Text style={bs.settingsActionSub}>Restore from a previously exported SQLite backup.</Text>
+          </View>
+          <Text style={bs.settingsChevron}>›</Text>
+        </TouchableOpacity>
       </View>
 
       <View style={bs.settingsCard}>
