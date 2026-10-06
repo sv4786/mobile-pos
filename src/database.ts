@@ -385,6 +385,7 @@ export const posDb = {
       'INSERT INTO auditlog (AuditId, Action, EntityType, EntityId, Description, CreatedBy, CreatedDt) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [idRow?.nextId || 1, action, entityType, entityId, description, createdBy, new Date().toISOString().replace('T',' ').slice(0,19)]
     );
+    await d.runAsync('DELETE FROM auditlog WHERE AuditId NOT IN (SELECT AuditId FROM auditlog ORDER BY AuditId DESC LIMIT 500)');
   },
 
   getAuditLogs: async (limit = 50) => {
@@ -416,20 +417,35 @@ export const posDb = {
   restoreDatabase: async (sourceUri: string) => {
     if (!sourceUri) throw new Error('No backup file was selected.');
     const current = await getDb();
-    await current.closeAsync();
-    db = null;
-    dbInitPromise = null;
+    const validationName = 'mobile-pos-restore-validation.db';
 
     try {
-      await SQLite.deleteDatabaseAsync('mobile_pos.db');
+      await SQLite.deleteDatabaseAsync(validationName).catch(() => {});
       await FileSystem.copyAsync({
         from: sourceUri,
-        to: `${SQLite.defaultDatabaseDirectory}/mobile_pos.db`,
+        to: `${SQLite.defaultDatabaseDirectory}/${validationName}`,
+      });
+      const validationDb = await SQLite.openDatabaseAsync(validationName);
+      const valid = await validationDb.getFirstAsync<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'initem' LIMIT 1"
+      );
+      await validationDb.closeAsync();
+      await SQLite.deleteDatabaseAsync(validationName);
+      if (!valid) throw new Error('The selected file is not a valid Mobile POS database backup.');
+
+      await current.closeAsync();
+      db = null;
+      dbInitPromise = null;
+      await SQLite.deleteDatabaseAsync('mobile-pos.db');
+      await FileSystem.copyAsync({
+        from: sourceUri,
+        to: `${SQLite.defaultDatabaseDirectory}/mobile-pos.db`,
       });
       const reopened = await getDb();
       await reopened.execAsync('PRAGMA journal_mode = WAL;');
     } catch (error) {
       db = null;
+      await SQLite.deleteDatabaseAsync(validationName).catch(() => {});
       throw error;
     }
   },
