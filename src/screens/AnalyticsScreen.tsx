@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, RefreshControl, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, RefreshControl, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { File } from 'expo-file-system';
 import * as IntentLauncher from 'expo-intent-launcher';
 import { posDb } from '../database';
@@ -16,6 +16,10 @@ export default function AnalyticsScreen({ storeId, storeName, storeCode }: Props
   const [data, setData] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [pdfUri, setPdfUri] = useState<string | null>(null);
+  const [businessReport, setBusinessReport] = useState<any>(null);
+  const [reportFrom, setReportFrom] = useState('');
+  const [reportTo, setReportTo] = useState('');
+  const [businessReportUri, setBusinessReportUri] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try { setData(await posDb.getAnalytics(storeId)); } catch (_) {}
@@ -37,6 +41,19 @@ export default function AnalyticsScreen({ storeId, storeName, storeCode }: Props
       });
     } catch (e: any) {
       Alert.alert('Open PDF', e?.message || 'No PDF viewer is available on this device.');
+    }
+  };
+
+  const exportBusinessReport = async () => {
+    try {
+      if (!reportFrom.trim() || !reportTo.trim()) throw new Error('Enter both dates using YYYY-MM-DD.');
+      const report = await posDb.getBusinessReport(storeId, reportFrom.trim(), reportTo.trim());
+      setBusinessReport(report);
+      const uri = await generateBusinessReportPdf(report, storeName || 'Business', storeCode || '');
+      setBusinessReportUri(uri);
+      Alert.alert('Business Report Ready', 'The report PDF has been generated.');
+    } catch (e: any) {
+      Alert.alert('Business Report', e?.message || 'Could not generate the report.');
     }
   };
 
