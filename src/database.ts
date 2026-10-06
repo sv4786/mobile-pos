@@ -289,6 +289,16 @@ async function initDatabaseSchema(d: SQLite.SQLiteDatabase) {
       CreatedDt TEXT,
       PRIMARY KEY (StockTakeId, ItemId, StockId)
     );
+
+    CREATE TABLE IF NOT EXISTS auditlog (
+      AuditId INTEGER PRIMARY KEY,
+      Action TEXT NOT NULL,
+      EntityType TEXT,
+      EntityId TEXT,
+      Description TEXT,
+      CreatedBy TEXT,
+      CreatedDt TEXT
+    );
   `);
 
   const ensureColumn = async (table: string, column: string) => {
@@ -367,6 +377,23 @@ async function seedDatabase(d: SQLite.SQLiteDatabase) {
 // ----------------------------------------------------
 
 export const posDb = {
+
+  logAudit: async (action: string, entityType: string = '', entityId: string = '', description: string = '', createdBy = 'OWNER') => {
+    const d = await getDb();
+    const idRow = await d.getFirstAsync<{ nextId: number }>('SELECT COALESCE(MAX(AuditId),0)+1 AS nextId FROM auditlog');
+    await d.runAsync(
+      'INSERT INTO auditlog (AuditId, Action, EntityType, EntityId, Description, CreatedBy, CreatedDt) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [idRow?.nextId || 1, action, entityType, entityId, description, createdBy, new Date().toISOString().replace('T',' ').slice(0,19)]
+    );
+  },
+
+  getAuditLogs: async (limit = 50) => {
+    const d = await getDb();
+    return await d.getAllAsync<any>(
+      'SELECT AuditId, Action, EntityType, EntityId, Description, CreatedBy, CreatedDt FROM auditlog ORDER BY AuditId DESC LIMIT ?',
+      [Math.max(1, Math.min(200, limit))]
+    );
+  },
 
   backupDatabase: async () => {
     const source = await getDb();
@@ -662,6 +689,7 @@ export const posDb = {
         [idRow?.nextId || 1, data.accId, data.invoiceNo || `PAY-${idRow?.nextId || 1}`, data.invoiceNo || null, amount, after, data.notes || 'Account payment', now]
       );
     });
+    await posDb.logAudit('PAYMENT', 'CUSTOMER_ACCOUNT', String(data.accId), 'Account payment R ' + amount.toFixed(2) + (data.invoiceNo ? ' against ' + data.invoiceNo : ''));
     return { transactionId: idRow?.nextId || 1, balance: after };
   },
 
@@ -832,6 +860,7 @@ export const posDb = {
         `, [destIdRow?.nextId || movementId + 1, otherStoreId, data.itemId, data.stockId, quantity, destBefore, destAfter, referenceNo, data.notes?.trim() || `Transfer from store ${data.storeId}`, data.storeId, data.createdBy || 'POS', now]);
       }
     });
+    await posDb.logAudit('STOCK_MOVEMENT', 'INVENTORY', String(data.itemId), String(data.movementType) + ' ' + quantity + ' units');
     return { movementId, referenceNo };
   },
 
@@ -1037,6 +1066,7 @@ export const posDb = {
       }
     });
 
+    await posDb.logAudit('CREATE', 'PRODUCT', String(itemId), 'Product created: ' + name);
     return { itemId, stockId };
   },
 
@@ -1097,6 +1127,7 @@ export const posDb = {
       if (barcode) await d.runAsync('INSERT INTO instockbarcode (ItemId, StockId, BarcodeId, Barcode, IsActive) VALUES (?, ?, ?, ?, 1)',
         [data.itemId, data.stockId, data.itemId, barcode]);
     });
+    await posDb.logAudit('UPDATE', 'PRODUCT', String(data.itemId), 'Product updated: ' + name);
   },
 
   deleteProduct: async (itemId: number, stockId: number) => {
@@ -1108,6 +1139,7 @@ export const posDb = {
       await d.runAsync('DELETE FROM instock WHERE ItemId = ? AND StockId = ?', [itemId, stockId]);
       await d.runAsync('DELETE FROM initem WHERE ItemId = ?', [itemId]);
     });
+    await posDb.logAudit('DELETE', 'PRODUCT', String(itemId), 'Product deleted');
   },
 
   adjustProductStock: async (itemId: number, stockId: number, storeId: number, delta: number) => {
@@ -1122,6 +1154,7 @@ export const posDb = {
     await d.runAsync(`INSERT INTO inqty (ItemId, StockId, StoreId, QtyOnHand) VALUES (?, ?, ?, ?)
       ON CONFLICT(ItemId, StockId, StoreId) DO UPDATE SET QtyOnHand = excluded.QtyOnHand`,
       [itemId, stockId, storeId, next]);
+    await posDb.logAudit('STOCK_ADJUST', 'INVENTORY', String(itemId), 'Stock changed by ' + delta);
     return next;
   },
 
@@ -1317,6 +1350,7 @@ export const posDb = {
       trNo++;
     }
 
+    await posDb.logAudit('CREATE', 'QUOTE', quoteNo, 'Quote created');
     return { quote_no: quoteNo, serial_no: serialNo, status: "CREATED" };
   },
 
@@ -1412,6 +1446,7 @@ export const posDb = {
       );
     }
 
+    await posDb.logAudit('CREATE', 'INVOICE', invNo, 'Invoice created via ' + String(data.pm_ref || 'CASH'));
     return { inv_no: invNo, serial_no: serialNo, status: 'COMPLETED' };
   },
 
