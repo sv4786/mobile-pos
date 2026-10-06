@@ -669,6 +669,7 @@ function AppContent() {
           placeholderTextColor="#4b5563"
           value={barcodeInput}
           onChangeText={setBarcodeInput}
+          autoFocus={activeTab === 'pos' || activeTab === 'stocktake'}
           onSubmitEditing={() => handleScan()}
           autoCapitalize="none"
           autoCorrect={false}
