@@ -354,3 +354,9 @@ export async function generateBusinessReportPdf(data: any, storeName: string, st
   if (!info.exists) throw new Error('Business report PDF could not be saved.');
   return targetUri;
 }
+
+
+export async function printDocumentPdf(uri: string) {
+  if (!uri) throw new Error('PDF is not available for printing.');
+  await Print.printAsync({ uri });
+}
