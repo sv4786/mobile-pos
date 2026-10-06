@@ -28,5 +28,8 @@ jobs:
       - name: TypeScript check
         run: npx tsc --noEmit
 
+      - name: Unit tests
+        run: npm test -- --coverage
+
       - name: Expo health check
         run: npx expo-doctor
