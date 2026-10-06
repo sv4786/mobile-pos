@@ -71,6 +71,7 @@ Last reviewed against `master`.
 - [x] Promotion limit.
 - [x] One-off POS line discounts.
 - [x] Promotion audit logging.
+- [x] Stock-take finalization audit logging.
 - [ ] Verify combined promotion + one-off discount behaviour with real sales.
 
 ## 7. Reporting
@@ -140,4 +141,6 @@ Pricing must be reviewed against actual support, distribution and payment-proces
 
 Do not call the app production-ready until all unchecked local/device tests above are completed.
 
-Current code-review status: **PASS WITH DEVICE TESTS PENDING**.
+Current code-review status: **PASS WITH LOCAL/DEVICE TESTS PENDING**.
+
+Static repository audit completed after the latest security and audit changes. The GitHub quality workflow was added, but no workflow run was available yet at the time of this review.
