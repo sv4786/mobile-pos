@@ -96,6 +96,20 @@ Last reviewed against `master`.
 - [ ] Test restore after creating invoices, customers and stock movements.
 - [ ] Test restore from an intentionally invalid file.
 
+## 8. Automated unit tests
+
+- [x] Jest test runner configured.
+- [x] POS payment and credit rules covered.
+- [x] Inventory rules covered.
+- [x] Customer credit rules covered.
+- [x] Promotion/discount rules covered.
+- [x] Reporting calculations covered.
+- [x] Security PIN rules covered.
+- [x] Backup/recovery rules covered.
+- [x] Commercial formatting rules covered.
+- [ ] Run `npm test -- --coverage` locally.
+- [ ] Require the GitHub Actions quality workflow to pass before release.
+
 ## 9. Security / audit
 - [x] Optional owner 4-digit PIN.
 - [x] PIN stored through SecureStore.
